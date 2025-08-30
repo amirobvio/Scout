@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- USB device filter for UVC cameras -->
+    <!-- This allows the app to be launched when a UVC camera is connected -->
+    
+    <!-- Generic UVC camera filter (class 239) -->
+    <usb-device class="239" />
+    
+    <!-- Video device class filter (class 14) -->
+    <usb-device class="14" />
+    
+    <!-- Common UVC camera vendor IDs -->
+    <!-- Logitech -->
+    <usb-device vendor-id="1133" />
+    
+    <!-- Microsoft -->
+    <usb-device vendor-id="1118" />
+    
+    <!-- Generic webcam vendors -->
+    <usb-device vendor-id="6997" />
+    <usb-device vendor-id="3141" />
+    
+</resources>
