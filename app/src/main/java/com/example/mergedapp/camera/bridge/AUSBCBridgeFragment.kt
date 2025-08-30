@@ -7,7 +7,6 @@ import android.view.*
 import android.widget.FrameLayout
 import com.jiangdg.ausbc.base.CameraFragment
 import com.jiangdg.ausbc.callback.ICameraStateCallBack
-import com.jiangdg.ausbc.callback.ICaptureCallBack
 import com.jiangdg.ausbc.callback.IPreviewDataCallBack
 import com.jiangdg.ausbc.camera.bean.CameraRequest
 import com.jiangdg.ausbc.render.env.RotateType
@@ -257,7 +256,7 @@ internal class AUSBCBridgeFragment : CameraFragment() {
             .setPreviewHeight(cameraConfig.height)
             .setRenderMode(CameraRequest.RenderMode.OPENGL)
             .setDefaultRotateType(RotateType.ANGLE_0)
-            .setAudioSource(CameraRequest.AudioSource.SOURCE_AUTO)
+            .setAudioSource(CameraRequest.AudioSource.SOURCE_AUTO) // Match usb_22 working config
             .setPreviewFormat(CameraRequest.PreviewFormat.FORMAT_MJPEG)
             .setAspectRatioShow(true)
             .setCaptureRawImage(false)
@@ -287,6 +286,7 @@ internal class AUSBCBridgeFragment : CameraFragment() {
     
     /**
      * Start video recording through AUSBC
+     * Following usb_22 pattern: Let AUSBC use default path to avoid MediaStore issues
      */
     fun startVideoRecording(outputPath: String, callback: (Boolean, String?) -> Unit) {
         try {
@@ -296,24 +296,26 @@ internal class AUSBCBridgeFragment : CameraFragment() {
                 return
             }
             
+            // Follow usb_22 pattern: DON'T pass custom path - let AUSBC use default path
             camera.captureVideoStart(object : com.jiangdg.ausbc.callback.ICaptureCallBack {
                 override fun onBegin() {
-                    Log.d(TAG, "Video recording started")
-                    bridgeCallback?.onRecordingStarted(outputPath)
+                    Log.d(TAG, "✅ Video recording started (AUSBC default path)")
+                    bridgeCallback?.onRecordingStarted("AUSBC_default_path") // AUSBC will choose path
                     callback(true, null)
                 }
                 
                 override fun onError(error: String?) {
-                    Log.e(TAG, "Video recording error: $error")
+                    Log.e(TAG, "❌ Video recording error: $error")
                     bridgeCallback?.onRecordingError(error ?: "Recording failed")
                     callback(false, error)
                 }
                 
                 override fun onComplete(path: String?) {
-                    Log.d(TAG, "Video recording completed: $path")
-                    bridgeCallback?.onRecordingStopped(path ?: outputPath)
+                    Log.d(TAG, "✅ Video recording completed to AUSBC default path: $path")
+                    // Use the actual path AUSBC saved to
+                    bridgeCallback?.onRecordingStopped(path ?: "unknown_path")
                 }
-            }, outputPath)
+            }) // NO path parameter 
             
         } catch (e: Exception) {
             Log.e(TAG, "Failed to start recording", e)

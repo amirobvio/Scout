@@ -193,9 +193,20 @@ class USBCameraTestActivity : AppCompatActivity(),
             permissionsToRequest.add(Manifest.permission.RECORD_AUDIO)
         }
         
+        // Add storage permissions for AUSBC's DCIM access
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
+            permissionsToRequest.add(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+        }
+        
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
+            permissionsToRequest.add(Manifest.permission.READ_EXTERNAL_STORAGE)
+        }
+        
         if (permissionsToRequest.isNotEmpty()) {
-            Log.d(TAG, "Requesting permissions: $permissionsToRequest")
+            Log.d(TAG, "📋 Requesting permissions for AUSBC: $permissionsToRequest")
             ActivityCompat.requestPermissions(this, permissionsToRequest.toTypedArray(), PERMISSION_REQUEST_CODE)
+        } else {
+            Log.d(TAG, "✅ All necessary permissions already granted")
         }
     }
     
@@ -225,11 +236,13 @@ class USBCameraTestActivity : AppCompatActivity(),
     private fun startRecording() {
         val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
         val fileName = "USB_Test_$timestamp.mp4"
-        val outputDir = File(getExternalFilesDir(null), "TestRecordings")
+        
+        // Use internal app cache directory to avoid MediaStore permissions
+        val outputDir = File(cacheDir, "recordings")
         outputDir.mkdirs()
         val outputPath = File(outputDir, fileName).absolutePath
         
-        Log.d(TAG, "Starting recording to: $outputPath")
+        Log.d(TAG, "🎥 Starting recording to INTERNAL storage: $outputPath")
         usbCamera?.startRecording(outputPath, this)
     }
     

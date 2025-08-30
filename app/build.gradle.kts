@@ -11,7 +11,7 @@ android {
     defaultConfig {
         applicationId = "com.example.mergedapp"
         minSdk = 24  // Minimum SDK for AUSBC library
-        targetSdk = 34  // Updated to latest stable
+        targetSdk = 33  // Match usb_22 working configuration
         versionCode = 1
         versionName = "1.0"
 
