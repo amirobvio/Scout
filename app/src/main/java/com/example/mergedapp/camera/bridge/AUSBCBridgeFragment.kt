@@ -3,7 +3,7 @@ package com.example.mergedapp.camera.bridge
 import android.hardware.usb.UsbDevice
 import android.os.Bundle
 import android.util.Log
-import android.view.*
+import android.view.*       
 import android.widget.FrameLayout
 import com.jiangdg.ausbc.base.CameraFragment
 import com.jiangdg.ausbc.callback.ICameraStateCallBack

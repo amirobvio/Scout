@@ -50,7 +50,8 @@ enum class CameraType {
 data class CameraConfig(
     val width: Int = 1280,
     val height: Int = 720,
-    val enableFrameCallback: Boolean = false
+    val enableFrameCallback: Boolean = false,
+    val pushFramesToQueue: Boolean = false  // Enable frame pushing to detection queue
 )
 
 data class CameraFrame(

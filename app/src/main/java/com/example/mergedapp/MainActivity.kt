@@ -7,6 +7,7 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import com.example.mergedapp.test.USBCameraTestActivity
+import com.example.mergedapp.test.InternalCameraTestActivity
 
 /**
  * Main launcher activity for the Merged Camera App
@@ -35,12 +36,13 @@ class MainActivity : AppCompatActivity() {
         
         // Description
         val descText = TextView(this).apply {
-            text = "Phase 1: Camera Interface Implementation\n\n" +
+            text = "Phase 2: Camera Implementation Complete\n\n" +
                     "✅ USB Camera Interface (AUSBC)\n" +
-                    "⚠️ Internal Camera Interface (Hollow)\n" +
+                    "✅ Internal Camera Interface (CameraX)\n" +
                     "✅ USB Permission Management\n" +
                     "✅ Frame Callback System\n" +
-                    "✅ Recording System"
+                    "✅ Recording System\n" +
+                    "🎯 Ready for Detection Integration"
             textSize = 14f
             setPadding(0, 0, 0, 40)
         }
@@ -55,14 +57,13 @@ class MainActivity : AppCompatActivity() {
             }
         }
         
-        // Internal Camera Test Button (Disabled for now)
+        // Internal Camera Test Button
         val internalTestButton = Button(this).apply {
-            text = "📱 Test Internal Camera (Coming Soon)"
+            text = "📱 Test Internal Camera"
             textSize = 16f
             setPadding(20, 20, 20, 20)
-            isEnabled = false
             setOnClickListener {
-                // TODO: Will be enabled in next phase
+                startActivity(Intent(this@MainActivity, InternalCameraTestActivity::class.java))
             }
         }
         

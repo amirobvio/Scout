@@ -1,54 +1,49 @@
 package com.example.mergedapp.test
 
 import android.Manifest
-import android.content.Context
 import android.content.pm.PackageManager
-import android.hardware.usb.UsbDevice
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import android.view.Gravity
-import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.*
 import androidx.appcompat.app.AppCompatActivity
+import androidx.camera.view.PreviewView
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import com.example.mergedapp.camera.*
-import com.example.mergedapp.usb.USBPermissionManager
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.*
 
 /**
- * Test activity for USB Camera implementation
- * Based on patterns from usb_22 MainActivity but using our new camera interface
+ * Test activity for Internal Camera implementation
+ * Based on USBCameraTestActivity patterns but using CameraX with PreviewView
  */
-class USBCameraTestActivity : AppCompatActivity(), 
-    USBPermissionManager.USBPermissionListener,
+class InternalCameraTestActivity : AppCompatActivity(), 
     CameraStateListener,
     RecordingCallback,
     FrameCallback {
     
     companion object {
-        private const val TAG = "USBCameraTestActivity"
-        private const val PERMISSION_REQUEST_CODE = 1001
+        private const val TAG = "InternalCameraTestActivity"
+        private const val PERMISSION_REQUEST_CODE = 2001
     }
     
     // UI components
     private var rootView: FrameLayout? = null
+    private var previewView: PreviewView? = null
     private var statusText: TextView? = null
     private var recordButton: ImageView? = null
     private var captureButton: ImageView? = null
     private var frameCountText: TextView? = null
     private var controlPanel: LinearLayout? = null
     
-    // USB and camera management
-    private lateinit var usbPermissionManager: USBPermissionManager
-    private var usbCamera: USBCameraImpl? = null
-    private var currentUsbDevice: UsbDevice? = null
+    // Camera management
+    private var internalCamera: InternalCameraImpl? = null
     
     // State
     private var frameCount = 0L
@@ -58,10 +53,7 @@ class USBCameraTestActivity : AppCompatActivity(),
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        Log.d(TAG, "USBCameraTestActivity started")
-        
-        // Initialize USB permission manager
-        usbPermissionManager = USBPermissionManager(this, this)
+        Log.d(TAG, "InternalCameraTestActivity started")
         
         // Create UI
         createUI()
@@ -69,10 +61,10 @@ class USBCameraTestActivity : AppCompatActivity(),
         // Request permissions
         requestNecessaryPermissions()
         
-        // Initialize USB monitoring with delay
+        // Initialize camera with delay (similar to USB pattern)
         Handler(Looper.getMainLooper()).postDelayed({
-            initializeUSBMonitoring()
-        }, 2000)
+            initializeCamera()
+        }, 1000)
     }
     
     private fun createUI() {
@@ -85,9 +77,18 @@ class USBCameraTestActivity : AppCompatActivity(),
             setBackgroundColor(0xFF000000.toInt())
         }
         
+        // Camera preview view
+        previewView = PreviewView(this).apply {
+            layoutParams = FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
+            )
+            scaleType = PreviewView.ScaleType.FILL_CENTER
+        }
+        
         // Status text
         statusText = TextView(this).apply {
-            text = "📷 USB Camera Test\n🔌 Initializing...\n\n⚠️ Connect USB camera and grant permissions"
+            text = "📱 Internal Camera Test\n🔄 Initializing...\n\n⚠️ Grant camera permissions"
             textSize = 16f
             setTextColor(0xFFFFFFFF.toInt())
             setBackgroundColor(0x80000000.toInt())
@@ -122,13 +123,14 @@ class USBCameraTestActivity : AppCompatActivity(),
         // Control panel
         createControlPanel()
         
-        // Add views to container
-        rootView?.addView(statusText)
-        rootView?.addView(frameCountText)
-        rootView?.addView(controlPanel)
+        // Add views to container (order matters for layering)
+        rootView?.addView(previewView)     // Background layer
+        rootView?.addView(statusText)      // Overlay
+        rootView?.addView(frameCountText)  // Overlay
+        rootView?.addView(controlPanel)    // Overlay
         
         setContentView(rootView)
-        Log.d(TAG, "UI created successfully")
+        Log.d(TAG, "UI created successfully with PreviewView")
     }
     
     private fun createControlPanel() {
@@ -140,7 +142,7 @@ class USBCameraTestActivity : AppCompatActivity(),
             ).apply {
                 gravity = Gravity.BOTTOM
             }
-            setBackgroundColor(0xCC2196F3.toInt())
+            setBackgroundColor(0xCC4CAF50.toInt()) // Green background to distinguish from USB test
             setPadding(20, 30, 20, 50)
             visibility = View.GONE // Initially hidden
         }
@@ -193,7 +195,6 @@ class USBCameraTestActivity : AppCompatActivity(),
             permissionsToRequest.add(Manifest.permission.RECORD_AUDIO)
         }
         
-        // Add storage permissions for AUSBC's DCIM access
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
             permissionsToRequest.add(Manifest.permission.WRITE_EXTERNAL_STORAGE)
         }
@@ -203,25 +204,48 @@ class USBCameraTestActivity : AppCompatActivity(),
         }
         
         if (permissionsToRequest.isNotEmpty()) {
-            Log.d(TAG, "📋 Requesting permissions for AUSBC: $permissionsToRequest")
+            Log.d(TAG, "📋 Requesting permissions for CameraX: $permissionsToRequest")
             ActivityCompat.requestPermissions(this, permissionsToRequest.toTypedArray(), PERMISSION_REQUEST_CODE)
         } else {
             Log.d(TAG, "✅ All necessary permissions already granted")
         }
     }
     
-    private fun initializeUSBMonitoring() {
-        Log.d(TAG, "Initializing USB monitoring")
+    private fun initializeCamera() {
+        Log.d(TAG, "Initializing internal camera")
         
-        // Register USB receiver
-        usbPermissionManager.register()
-        
-        // Check for connected cameras and request permissions
-        usbPermissionManager.checkAndRequestPermissions()
+        try {
+            updateStatus("🔄 Initializing Internal Camera\nSetting up CameraX...")
+            
+            // Create internal camera instance
+            internalCamera = InternalCameraImpl(this, this)
+            internalCamera?.setCameraStateListener(this)
+            
+            // Start camera with frame callback enabled for testing
+            val config = CameraConfig(
+                width = 1280,
+                height = 720,
+                enableFrameCallback = true
+            )
+            
+            internalCamera?.startCamera(config, this)
+            
+            Log.d(TAG, "Internal camera initialization started")
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to initialize camera", e)
+            updateStatus("❌ Camera Initialization Failed\n${e.message}")
+        }
+    }
+    
+    private fun connectPreview() {
+        // Connect CameraX preview to PreviewView
+        internalCamera?.getPreview()?.setSurfaceProvider(previewView?.surfaceProvider)
+        Log.d(TAG, "Preview connected to PreviewView")
     }
     
     private fun toggleRecording() {
-        if (usbCamera == null) {
+        if (internalCamera == null) {
             Toast.makeText(this, "Camera not ready!", Toast.LENGTH_SHORT).show()
             return
         }
@@ -235,7 +259,7 @@ class USBCameraTestActivity : AppCompatActivity(),
     
     private fun startRecording() {
         val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
-        val fileName = "USB_Test_$timestamp.mp4"
+        val fileName = "Internal_Test_$timestamp.mp4"
         
         // Use external storage like detection_test project - accessible via file manager
         val outputDir = File(getExternalFilesDir(android.os.Environment.DIRECTORY_MOVIES), "MergedAppRecordings")
@@ -244,27 +268,22 @@ class USBCameraTestActivity : AppCompatActivity(),
         
         Log.d(TAG, "🎥 Starting recording to EXTERNAL storage: $outputPath")
         Log.d(TAG, "📁 You can find this recording in: Android/data/com.example.mergedapp/files/Movies/MergedAppRecordings/")
-        usbCamera?.startRecording(outputPath, this)
+        internalCamera?.startRecording(outputPath, this)
     }
     
     private fun stopRecording() {
         Log.d(TAG, "Stopping recording")
-        usbCamera?.stopRecording()
+        internalCamera?.stopRecording()
     }
     
     private fun testFrameCallback() {
-        if (usbCamera == null) {
+        if (internalCamera == null) {
             Toast.makeText(this, "Camera not ready!", Toast.LENGTH_SHORT).show()
             return
         }
         
-        // Toggle preview visibility for debugging
-        if (usbCamera is USBCameraImpl) {
-            usbCamera?.showPreview()
-            Toast.makeText(this, "Preview shown - check for camera preview overlay", Toast.LENGTH_SHORT).show()
-        } else {
-            Toast.makeText(this, "Frame callback test - check logs for frame data", Toast.LENGTH_SHORT).show()
-        }
+        Toast.makeText(this, "Frame callback test - check logs for frame data", Toast.LENGTH_SHORT).show()
+        Log.d(TAG, "🔍 Frame callback test - current frame count: $frameCount")
     }
     
     private fun updateStatus(message: String) {
@@ -273,81 +292,24 @@ class USBCameraTestActivity : AppCompatActivity(),
         }
     }
     
-    // USBPermissionManager.USBPermissionListener implementation
-    override fun onPermissionGranted(device: UsbDevice) {
-        Log.d(TAG, "✅ USB permission granted for: ${device.deviceName}")
-        updateStatus("✅ USB Permission Granted\n🔄 Initializing camera...")
-        
-        currentUsbDevice = device
-        usbPermissionManager.logDeviceInfo(device)
-        
-        // NOW initialize the camera after permission is granted
-        initializeCamera(device)
-    }
-    
-    override fun onPermissionDenied(device: UsbDevice) {
-        Log.w(TAG, "❌ USB permission denied for: ${device.deviceName}")
-        updateStatus("❌ USB Permission Denied\nCamera cannot start")
-        Toast.makeText(this, "USB permission denied - camera won't work", Toast.LENGTH_LONG).show()
-    }
-    
-    override fun onUsbDeviceAttached(device: UsbDevice) {
-        Log.d(TAG, "🔌 USB camera attached: ${device.deviceName}")
-        usbPermissionManager.requestPermission(device)
-    }
-    
-    override fun onUsbDeviceDetached(device: UsbDevice) {
-        Log.d(TAG, "🔌 USB camera detached: ${device.deviceName}")
-        if (device == currentUsbDevice) {
-            updateStatus("📷 USB Camera\nDisconnected")
-            usbCamera?.stopCamera()
-            usbCamera = null
-            currentUsbDevice = null
-            controlPanel?.visibility = View.GONE
-        }
-    }
-
-    // Camera initialization - only called AFTER USB permission is granted
-    private fun initializeCamera(device: UsbDevice) {
-        try {
-            updateStatus("🔄 Initializing USB Camera\n${device.productName ?: device.deviceName}")
-            
-            // Create USB camera instance with activity reference for fragment management
-            usbCamera = USBCameraImpl(this, device, this)
-            usbCamera?.setCameraStateListener(this)
-            
-            // Start camera with frame callback enabled for testing
-            val config = CameraConfig(
-                width = 1280,
-                height = 720,
-                enableFrameCallback = true
-            )
-            
-            usbCamera?.startCamera(config, this)
-            
-            Log.d(TAG, "USB camera initialization started with fragment bridge")
-            
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to initialize camera", e)
-            updateStatus("❌ Camera Initialization Failed\n${e.message}")
-        }
-    }
-
-    
     // CameraStateListener implementation
     override fun onCameraOpened() {
         Log.i(TAG, "Camera opened successfully")
+        
+        // Connect preview now that camera is ready
+        connectPreview()
+        
         runOnUiThread {
-            updateStatus("✅ USB Camera Ready\nFrame callbacks enabled")
+            updateStatus("✅ Internal Camera Ready\nFrame callbacks enabled\nPreview active")
             controlPanel?.visibility = View.VISIBLE
-            Toast.makeText(this, "Camera ready!", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "Internal camera ready!", Toast.LENGTH_SHORT).show()
         }
     }
     
     override fun onCameraClosed() {
         Log.i(TAG, "Camera closed")
         runOnUiThread {
-            updateStatus("📷 USB Camera\nClosed")
+            updateStatus("📱 Internal Camera\nClosed")
             controlPanel?.visibility = View.GONE
         }
     }
@@ -440,6 +402,11 @@ class USBCameraTestActivity : AppCompatActivity(),
                     Log.w(TAG, "Permissions denied: $denied")
                     Toast.makeText(this, "Some permissions denied. Functionality may be limited.", Toast.LENGTH_LONG).show()
                 }
+                
+                // Continue with camera initialization if CAMERA permission is granted
+                if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
+                    initializeCamera()
+                }
             }
         }
     }
@@ -448,10 +415,7 @@ class USBCameraTestActivity : AppCompatActivity(),
         Log.d(TAG, "Activity destroying")
         
         // Stop camera
-        usbCamera?.stopCamera()
-        
-        // Unregister USB receiver
-        usbPermissionManager.unregister()
+        internalCamera?.stopCamera()
         
         // Clean up timer
         recordingTimer?.removeCallbacksAndMessages(null)

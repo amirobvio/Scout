@@ -50,6 +50,14 @@
             android:theme="@style/Theme.MergedApp"
             android:screenOrientation="portrait" />
             
+        <!-- Internal Camera Test Activity -->
+        <activity
+            android:name=".test.InternalCameraTestActivity"
+            android:exported="false"
+            android:label="Internal Camera Test"
+            android:theme="@style/Theme.MergedApp"
+            android:screenOrientation="portrait" />
+            
         <!-- USB device attached intent filter -->
         <activity-alias 
             android:name=".UsbDeviceReceiver"
