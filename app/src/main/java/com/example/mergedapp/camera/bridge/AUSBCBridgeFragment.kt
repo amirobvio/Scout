@@ -23,6 +23,8 @@ import com.example.mergedapp.camera.CameraConfig
  * It's designed to be invisible or minimal - just providing the necessary
  * framework compliance for AUSBC to work properly.
  */
+
+ 
 internal class AUSBCBridgeFragment : CameraFragment() {
     
     companion object {

@@ -42,7 +42,7 @@ class InternalCameraImpl(
     
     // Recording state
     private var isCurrentlyRecording = false
-    private var currentRecorder: Recording? = null
+    private var currentRecording: Recording? = null
     
     // Camera executor for background operations
     private lateinit var cameraExecutor: ExecutorService
@@ -51,7 +51,7 @@ class InternalCameraImpl(
     private lateinit var bitmapBuffer: Bitmap
 
     override fun startCamera(config: CameraConfig, frameCallback: FrameCallback?) {
-        Log.d(TAG, "InternalCameraImpl.startCamera: 🚀 Starting internal camera with config: $config")
+        Log.d(TAG, "🚀 Starting internal camera with config: $config")
         
         this.frameCallback = frameCallback
         this.currentConfig = config
@@ -62,13 +62,13 @@ class InternalCameraImpl(
         try {
             setupCameraProvider()
         } catch (e: Exception) {
-            Log.e(TAG, "InternalCameraImpl.startCamera: Failed to start internal camera", e)
+            Log.e(TAG, "Failed to start internal camera", e)
             cameraStateListener?.onCameraError("Failed to start camera: ${e.message}")
         }
     }
 
     override fun stopCamera() {
-        Log.d(TAG, "InternalCameraImpl.stopCamera: Stopping internal camera")
+        Log.d(TAG, "Stopping internal camera")
         
         try {
             // Stop recording if active
@@ -93,17 +93,17 @@ class InternalCameraImpl(
             frameCallback = null
             currentConfig = null
             
-            Log.d(TAG, "InternalCameraImpl.stopCamera: Internal camera stopped successfully")
+            Log.d(TAG, "Internal camera stopped successfully")
             cameraStateListener?.onCameraClosed()
             
         } catch (e: Exception) {
-            Log.e(TAG, "InternalCameraImpl.stopCamera: Error stopping internal camera", e)
+            Log.e(TAG, "Error stopping internal camera", e)
             cameraStateListener?.onCameraError("Failed to stop camera: ${e.message}")
         }
     }
 
     override fun startRecording(outputPath: String, callback: RecordingCallback) {
-        Log.d(TAG, "InternalCameraImpl.startRecording: Starting recording to: $outputPath")
+        Log.d(TAG, "Starting recording to: $outputPath")
         
         if (videoCapture == null) {
             callback.onRecordingError("Video capture not initialized")
@@ -126,30 +126,30 @@ class InternalCameraImpl(
             val outputOptions = FileOutputOptions.Builder(outputFile).build()
             
             // Start recording
-            currentRecorder = videoCapture!!.output
+            currentRecording = videoCapture!!.output
                 .prepareRecording(context, outputOptions)
                 .start(ContextCompat.getMainExecutor(context)) { recordEvent ->
                     handleRecordingEvent(recordEvent, outputPath)
                 }
             
         } catch (e: Exception) {
-            Log.e(TAG, "InternalCameraImpl.startRecording: Failed to start recording", e)
+            Log.e(TAG, "Failed to start recording", e)
             callback.onRecordingError("Failed to start recording: ${e.message}")
         }
     }
 
     override fun stopRecording() {
-        Log.d(TAG, "InternalCameraImpl.stopRecording: Stopping recording")
+        Log.d(TAG, "Stopping recording")
         
         if (!isCurrentlyRecording) {
-            Log.w(TAG, "InternalCameraImpl.stopRecording: Not currently recording")
+            Log.w(TAG, "Not currently recording")
             return
         }
         
         try {
-            currentRecorder?.stop()
+            currentRecording?.stop()
         } catch (e: Exception) {
-            Log.e(TAG, "InternalCameraImpl.stopRecording: Error stopping recording", e)
+            Log.e(TAG, "Error stopping recording", e)
             recordingCallback?.onRecordingError("Error stopping recording: ${e.message}")
         }
     }
@@ -183,11 +183,11 @@ class InternalCameraImpl(
                 setupUseCases()
                 bindUseCases()
                 
-                Log.d(TAG, "InternalCameraImpl.setupCameraProvider: CameraX provider set up successfully")
+                Log.d(TAG, "CameraX provider set up successfully")
                 cameraStateListener?.onCameraOpened()
                 
             } catch (e: Exception) {
-                Log.e(TAG, "InternalCameraImpl.setupCameraProvider: Failed to get camera provider", e)
+                Log.e(TAG, "Failed to get camera provider", e)
                 cameraStateListener?.onCameraError("Camera provider failed: ${e.message}")
             }
         }, ContextCompat.getMainExecutor(context))
@@ -227,7 +227,7 @@ class InternalCameraImpl(
             .build()
         videoCapture = VideoCapture.withOutput(recorder)
         
-        Log.d(TAG, "InternalCameraImpl.setupUseCases: Use cases set up: preview=${preview != null}, " +
+        Log.d(TAG, "Use cases set up: preview=${preview != null}, " +
                 "imageAnalyzer=${imageAnalyzer != null}, videoCapture=${videoCapture != null}")
     }
     
@@ -260,10 +260,10 @@ class InternalCameraImpl(
                 *useCases.toTypedArray()
             )
             
-            Log.d(TAG, "InternalCameraImpl.bindUseCases: Camera bound successfully with ${useCases.size} use cases")
+            Log.d(TAG, "Camera bound successfully with ${useCases.size} use cases")
             
         } catch (e: Exception) {
-            Log.e(TAG, "InternalCameraImpl.bindUseCases: Failed to bind camera use cases", e)
+            Log.e(TAG, "Failed to bind camera use cases", e)
             throw e
         }
     }
@@ -283,9 +283,6 @@ class InternalCameraImpl(
             }
             
             // Copy frame data
-            // TODO: Why copying like that : ImageProxy → Buffer → Bitmap → ByteArray 
-            // detection_test works like: ImageProxy → Bitmap → TensorFlow Lite
-
             imageProxy.use { proxy ->
                 bitmapBuffer.copyPixelsFromBuffer(proxy.planes[0].buffer)
                 
@@ -297,7 +294,7 @@ class InternalCameraImpl(
                 buffer.get(frameData)
                 
                 val cameraFrame = CameraFrame(
-                    data = frameData, // TODO: There needs to be some workaround for this because it forces us to convert. 
+                    data = frameData,
                     width = proxy.width,
                     height = proxy.height,
                     format = FrameFormat.RGBA,
@@ -309,7 +306,7 @@ class InternalCameraImpl(
             }
             
         } catch (e: Exception) {
-            Log.e(TAG, "InternalCameraImpl.processFrame: Error processing frame", e)
+            Log.e(TAG, "Error processing frame", e)
         }
     }
     
@@ -319,26 +316,26 @@ class InternalCameraImpl(
     private fun handleRecordingEvent(recordEvent: VideoRecordEvent, outputPath: String) {
         when (recordEvent) {
             is VideoRecordEvent.Start -> {
-                Log.d(TAG, "InternalCameraImpl.handleRecordingEvent: Recording started successfully")
+                Log.d(TAG, "Recording started successfully")
                 isCurrentlyRecording = true
                 recordingCallback?.onRecordingStarted(outputPath)
             }
             is VideoRecordEvent.Finalize -> {
-                Log.d(TAG, "InternalCameraImpl.handleRecordingEvent: Recording finalized")
+                Log.d(TAG, "Recording finalized")
                 isCurrentlyRecording = false
-                currentRecorder = null
+                currentRecording = null
                 
                 if (recordEvent.hasError()) {
-                    Log.e(TAG, "InternalCameraImpl.handleRecordingEvent: Recording failed: ${recordEvent.error}")
+                    Log.e(TAG, "Recording failed: ${recordEvent.error}")
                     recordingCallback?.onRecordingError("Recording failed: ${recordEvent.error}")
                 } else {
-                    Log.d(TAG, "InternalCameraImpl.handleRecordingEvent: Recording completed successfully: $outputPath")
+                    Log.d(TAG, "Recording completed successfully: $outputPath")
                     recordingCallback?.onRecordingStopped(outputPath)
                 }
             }
             is VideoRecordEvent.Status -> {
                 // Optional: Handle status updates
-                Log.d(TAG, "InternalCameraImpl.handleRecordingEvent: Recording status: ${recordEvent.recordingStats}")
+                Log.d(TAG, "Recording status: ${recordEvent.recordingStats}")
             }
         }
     }

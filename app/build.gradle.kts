@@ -10,12 +10,17 @@ android {
 
     defaultConfig {
         applicationId = "com.example.mergedapp"
-        minSdk = 24  // Minimum SDK for AUSBC library
+        minSdk = 26  // Updated for TensorFlow Lite compatibility
         targetSdk = 33  // Match usb_22 working configuration
         versionCode = 1
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        
+        // Native code support for image processing
+        ndk {
+            abiFilters += listOf("armeabi-v7a", "arm64-v8a", "x86", "x86_64")
+        }
     }
 
     buildTypes {
@@ -36,6 +41,18 @@ android {
     }
     buildFeatures {
         compose = true
+    }
+    
+    // Native build configuration
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/cpp/CMakeLists.txt")
+        }
+    }
+    
+    // Ensure tflite files aren't compressed
+    androidResources {
+        noCompress += "tflite"
     }
 }
 
@@ -66,6 +83,14 @@ dependencies {
     
     // Fragment for CameraX implementation
     implementation("androidx.fragment:fragment-ktx:1.6.2")
+    
+    // TensorFlow Lite dependencies
+    implementation("org.tensorflow:tensorflow-lite:2.12.0")
+    implementation("org.tensorflow:tensorflow-lite-task-vision:0.4.0")
+    implementation("org.tensorflow:tensorflow-lite-gpu-delegate-plugin:0.4.0")
+    implementation("org.tensorflow:tensorflow-lite-gpu:2.12.0")
+    implementation("org.yaml:snakeyaml:1.29")
+    
     
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)

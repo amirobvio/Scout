@@ -53,7 +53,7 @@ class InternalCameraTestActivity : AppCompatActivity(),
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        Log.d(TAG, "InternalCameraTestActivity.onCreate: InternalCameraTestActivity started")
+        Log.d(TAG, "InternalCameraTestActivity started")
         
         // Create UI
         createUI()
@@ -63,7 +63,7 @@ class InternalCameraTestActivity : AppCompatActivity(),
         
         // Initialize camera with delay (similar to USB pattern)
         Handler(Looper.getMainLooper()).postDelayed({
-            requestInitializeCamera()
+            initializeCamera()
         }, 1000)
     }
     
@@ -130,7 +130,7 @@ class InternalCameraTestActivity : AppCompatActivity(),
         rootView?.addView(controlPanel)    // Overlay
         
         setContentView(rootView)
-        Log.d(TAG, "InternalCameraTestActivity.createUI: UI created successfully with PreviewView")
+        Log.d(TAG, "UI created successfully with PreviewView")
     }
     
     private fun createControlPanel() {
@@ -204,22 +204,22 @@ class InternalCameraTestActivity : AppCompatActivity(),
         }
         
         if (permissionsToRequest.isNotEmpty()) {
-            Log.d(TAG, "InternalCameraTestActivity.requestNecessaryPermissions: 📋 Requesting permissions for CameraX: $permissionsToRequest")
+            Log.d(TAG, "📋 Requesting permissions for CameraX: $permissionsToRequest")
             ActivityCompat.requestPermissions(this, permissionsToRequest.toTypedArray(), PERMISSION_REQUEST_CODE)
         } else {
-            Log.d(TAG, "InternalCameraTestActivity.requestNecessaryPermissions: ✅ All necessary permissions already granted")
+            Log.d(TAG, "✅ All necessary permissions already granted")
         }
     }
     
-    private fun requestInitializeCamera() {
-        Log.d(TAG, "InternalCameraTestActivity.requestInitializeCamera: Initializing internal camera")
+    private fun initializeCamera() {
+        Log.d(TAG, "Initializing internal camera")
         
         try {
             updateStatus("🔄 Initializing Internal Camera\nSetting up CameraX...")
             
             // Create internal camera instance
             internalCamera = InternalCameraImpl(this, this)
-            internalCamera?.setCameraStateListener(this) // TODO: Why can't we also pass this in previous line ?
+            internalCamera?.setCameraStateListener(this)
             
             // Start camera with frame callback enabled for testing
             val config = CameraConfig(
@@ -230,10 +230,10 @@ class InternalCameraTestActivity : AppCompatActivity(),
             
             internalCamera?.startCamera(config, this)
             
-    
+            Log.d(TAG, "Internal camera initialization started")
             
         } catch (e: Exception) {
-            Log.e(TAG, "InternalCameraTestActivity.requestInitializeCamera: Failed to initialize camera", e)
+            Log.e(TAG, "Failed to initialize camera", e)
             updateStatus("❌ Camera Initialization Failed\n${e.message}")
         }
     }
@@ -241,7 +241,7 @@ class InternalCameraTestActivity : AppCompatActivity(),
     private fun connectPreview() {
         // Connect CameraX preview to PreviewView
         internalCamera?.getPreview()?.setSurfaceProvider(previewView?.surfaceProvider)
-        Log.d(TAG, "InternalCameraTestActivity.connectPreview: Preview connected to PreviewView")
+        Log.d(TAG, "Preview connected to PreviewView")
     }
     
     private fun toggleRecording() {
@@ -253,11 +253,11 @@ class InternalCameraTestActivity : AppCompatActivity(),
         if (isRecording) {
             stopRecording()
         } else {
-            requestStartRecording()
+            startRecording()
         }
     }
     
-    private fun requestStartRecording() {
+    private fun startRecording() {
         val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
         val fileName = "Internal_Test_$timestamp.mp4"
         
@@ -266,13 +266,13 @@ class InternalCameraTestActivity : AppCompatActivity(),
         outputDir.mkdirs()
         val outputPath = File(outputDir, fileName).absolutePath
         
-        Log.d(TAG, "InternalCameraTestActivity.requestStartRecording: 🎥 Starting recording to EXTERNAL storage: $outputPath")
-        Log.d(TAG, "InternalCameraTestActivity.requestStartRecording: 📁 You can find this recording in: Android/data/com.example.mergedapp/files/Movies/MergedAppRecordings/")
+        Log.d(TAG, "🎥 Starting recording to EXTERNAL storage: $outputPath")
+        Log.d(TAG, "📁 You can find this recording in: Android/data/com.example.mergedapp/files/Movies/MergedAppRecordings/")
         internalCamera?.startRecording(outputPath, this)
     }
     
     private fun stopRecording() {
-        Log.d(TAG, "InternalCameraTestActivity.stopRecording: Stopping recording")
+        Log.d(TAG, "Stopping recording")
         internalCamera?.stopRecording()
     }
     
@@ -283,7 +283,7 @@ class InternalCameraTestActivity : AppCompatActivity(),
         }
         
         Toast.makeText(this, "Frame callback test - check logs for frame data", Toast.LENGTH_SHORT).show()
-        Log.d(TAG, "InternalCameraTestActivity.testFrameCallback: 🔍 Frame callback test - current frame count: $frameCount")
+        Log.d(TAG, "🔍 Frame callback test - current frame count: $frameCount")
     }
     
     private fun updateStatus(message: String) {
@@ -294,7 +294,7 @@ class InternalCameraTestActivity : AppCompatActivity(),
     
     // CameraStateListener implementation
     override fun onCameraOpened() {
-        Log.i(TAG, "InternalCameraTestActivity.onCameraOpened: Camera opened successfully")
+        Log.i(TAG, "Camera opened successfully")
         
         // Connect preview now that camera is ready
         connectPreview()
@@ -307,7 +307,7 @@ class InternalCameraTestActivity : AppCompatActivity(),
     }
     
     override fun onCameraClosed() {
-        Log.i(TAG, "InternalCameraTestActivity.onCameraClosed: Camera closed")
+        Log.i(TAG, "Camera closed")
         runOnUiThread {
             updateStatus("📱 Internal Camera\nClosed")
             controlPanel?.visibility = View.GONE
@@ -315,7 +315,7 @@ class InternalCameraTestActivity : AppCompatActivity(),
     }
     
     override fun onCameraError(error: String) {
-        Log.e(TAG, "InternalCameraTestActivity.onCameraError: Camera error: $error")
+        Log.e(TAG, "Camera error: $error")
         runOnUiThread {
             updateStatus("❌ Camera Error\n$error")
             Toast.makeText(this, "Camera error: $error", Toast.LENGTH_LONG).show()
@@ -324,7 +324,7 @@ class InternalCameraTestActivity : AppCompatActivity(),
     
     // RecordingCallback implementation
     override fun onRecordingStarted(outputPath: String) {
-        Log.d(TAG, "InternalCameraTestActivity.onRecordingStarted: Recording started: $outputPath")
+        Log.d(TAG, "Recording started: $outputPath")
         isRecording = true
         recordingStartTime = System.currentTimeMillis()
         
@@ -336,7 +336,7 @@ class InternalCameraTestActivity : AppCompatActivity(),
     }
     
     override fun onRecordingStopped(outputPath: String) {
-        Log.d(TAG, "InternalCameraTestActivity.onRecordingStopped: Recording stopped: $outputPath")
+        Log.d(TAG, "Recording stopped: $outputPath")
         isRecording = false
         
         runOnUiThread {
@@ -347,7 +347,7 @@ class InternalCameraTestActivity : AppCompatActivity(),
     }
     
     override fun onRecordingError(error: String) {
-        Log.e(TAG, "InternalCameraTestActivity.onRecordingError: Recording error: $error")
+        Log.e(TAG, "Recording error: $error")
         isRecording = false
         
         runOnUiThread {
@@ -370,7 +370,7 @@ class InternalCameraTestActivity : AppCompatActivity(),
         
         // Log frame details occasionally
         if (frameCount % 300 == 0L) {
-            Log.d(TAG, "InternalCameraTestActivity.onFrameAvailable: Frame $frameCount: ${frame.width}x${frame.height}, format: ${frame.format}, data size: ${frame.data.size}")
+            Log.d(TAG, "Frame $frameCount: ${frame.width}x${frame.height}, format: ${frame.format}, data size: ${frame.data.size}")
         }
     }
     
@@ -395,24 +395,24 @@ class InternalCameraTestActivity : AppCompatActivity(),
                 }
                 
                 if (granted.isNotEmpty()) {
-                    Log.d(TAG, "InternalCameraTestActivity.onRequestPermissionsResult: Permissions granted: $granted")
+                    Log.d(TAG, "Permissions granted: $granted")
                 }
                 
                 if (denied.isNotEmpty()) {
-                    Log.w(TAG, "InternalCameraTestActivity.onRequestPermissionsResult: Permissions denied: $denied")
+                    Log.w(TAG, "Permissions denied: $denied")
                     Toast.makeText(this, "Some permissions denied. Functionality may be limited.", Toast.LENGTH_LONG).show()
                 }
                 
                 // Continue with camera initialization if CAMERA permission is granted
                 if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
-                    requestInitializeCamera()
+                    initializeCamera()
                 }
             }
         }
     }
     
     override fun onDestroy() {
-        Log.d(TAG, "InternalCameraTestActivity.onDestroy: Activity destroying")
+        Log.d(TAG, "Activity destroying")
         
         // Stop camera
         internalCamera?.stopCamera()
