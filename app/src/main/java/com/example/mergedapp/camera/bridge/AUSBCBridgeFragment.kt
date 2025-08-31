@@ -60,7 +60,7 @@ internal class AUSBCBridgeFragment : CameraFragment() {
      * BaseFragment requires this method - called by AUSBC framework
      */
     override fun getRootView(inflater: LayoutInflater, container: ViewGroup?): View? {
-        Log.d(TAG, "Creating AUSBC bridge fragment root view")
+        Log.d(TAG, "AUSBCBridgeFragment.getRootView: Creating AUSBC bridge fragment root view")
         
         // Create minimal layout with preview surface
         val rootLayout = FrameLayout(requireContext()).apply {
@@ -86,25 +86,25 @@ internal class AUSBCBridgeFragment : CameraFragment() {
         
         rootLayout.addView(previewSurface)
         
-        Log.d(TAG, "Bridge fragment root view created with preview surface")
+        Log.d(TAG, "AUSBCBridgeFragment.getRootView: Bridge fragment root view created with preview surface")
         return rootLayout
     }
     
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
         
-        Log.d(TAG, "🎬 Bridge fragment onViewCreated called")
-        Log.d(TAG, "  Device: ${targetUsbDevice.deviceName}")
-        Log.d(TAG, "  View: ${view != null}")
-        Log.d(TAG, "  Preview surface: ${previewSurface != null}")
+        Log.d(TAG, "AUSBCBridgeFragment.onViewCreated: 🎬 Bridge fragment onViewCreated called")
+        Log.d(TAG, "AUSBCBridgeFragment.onViewCreated:   Device: ${targetUsbDevice.deviceName}")
+        Log.d(TAG, "AUSBCBridgeFragment.onViewCreated:   View: ${view != null}")
+        Log.d(TAG, "AUSBCBridgeFragment.onViewCreated:   Preview surface: ${previewSurface != null}")
         
         // Enable AUSBC debugging
         try {
-            Log.d(TAG, "🐛 Enabling AUSBC internal debugging...")
+            Log.d(TAG, "AUSBCBridgeFragment.onViewCreated: 🐛 Enabling AUSBC internal debugging...")
             // Enable debug mode for better logging
             com.jiangdg.ausbc.utils.Utils.debugCamera = true
         } catch (e: Exception) {
-            Log.w(TAG, "Could not enable AUSBC debugging: ${e.message}")
+            Log.w(TAG, "AUSBCBridgeFragment.onViewCreated: Could not enable AUSBC camera debugging: ${e.message}")
         }
         
         // Initialize camera with our target USB device
@@ -112,11 +112,11 @@ internal class AUSBCBridgeFragment : CameraFragment() {
         
         // Test if postDelayed works
         view.postDelayed({
-            Log.d(TAG, "⏰ PostDelayed callback executed - view is working")
+            Log.d(TAG, "AUSBCBridgeFragment.onViewCreated: ⏰ PostDelayed callback executed - view is working")
             
             // Also try to make the preview surface visible
             previewSurface?.visibility = View.VISIBLE
-            Log.d(TAG, "🖼️ Made preview surface visible")
+            Log.d(TAG, "AUSBCBridgeFragment.onViewCreated: 🖼️ Made preview surface visible")
         }, 500)
     }
     
@@ -124,59 +124,59 @@ internal class AUSBCBridgeFragment : CameraFragment() {
      * Override initView to ensure AUSBC camera registration happens
      */
     override fun initView() {
-        Log.d(TAG, "🔄 AUSBC initView called - checking camera setup...")
+        Log.d(TAG, "AUSBCBridgeFragment.initView: 🔄 AUSBC initView called - checking camera setup...")
         
         // Add detailed logging before calling super
-        Log.d(TAG, "  Preview surface: ${previewSurface != null}")
-        Log.d(TAG, "  Target device: ${targetUsbDevice.deviceName}")
-        Log.d(TAG, "  Config: ${cameraConfig}")
+        Log.d(TAG, "AUSBCBridgeFragment.initView:   Preview surface: ${previewSurface != null}")
+        Log.d(TAG, "AUSBCBridgeFragment.initView:   Target device: ${targetUsbDevice.deviceName}")
+        Log.d(TAG, "AUSBCBridgeFragment.initView:   Config: ${cameraConfig}")
         
         super.initView()
         
-        Log.d(TAG, "✅ AUSBC initView completed - parent registration should be done")
+        Log.d(TAG, "AUSBCBridgeFragment.initView: ✅ AUSBC initView completed - parent registration should be done")
         
         // Immediate debugging - don't rely on postDelayed
-        Log.d(TAG, "🔍 Immediate camera status check...")
+        Log.d(TAG, "AUSBCBridgeFragment.initView: 🔍 Immediate camera status check...")
         
         try {
             val currentCamera = getCurrentCamera()
-            Log.d(TAG, "  Current camera: ${currentCamera != null}")
+            Log.d(TAG, "AUSBCBridgeFragment.initView:   Current camera: ${currentCamera != null}")
             
             val deviceList = getDeviceList()
-            Log.d(TAG, "  Available devices: ${deviceList?.size ?: 0}")
+            Log.d(TAG, "AUSBCBridgeFragment.initView:   Available devices: ${deviceList?.size ?: 0}")
             deviceList?.forEach { device ->
-                Log.d(TAG, "    - ${device.deviceName} (${device.productName})")
+                Log.d(TAG, "AUSBCBridgeFragment.initView:     - ${device.deviceName} (${device.productName})")
             }
             
             if (currentCamera == null) {
-                Log.w(TAG, "  ❌ No current camera found immediately after initView")
+                Log.w(TAG, "AUSBCBridgeFragment.initView:   ❌ No current camera found immediately after initView")
             }
             
         } catch (e: Exception) {
-            Log.e(TAG, "❌ Error in immediate camera check", e)
+            Log.e(TAG, "AUSBCBridgeFragment.initView: ❌ Error in immediate camera check", e)
         }
         
         // Also add delayed check to see if anything changes
         view?.postDelayed({
-            Log.d(TAG, "⏰ Delayed check (2s after initView)...")
+            Log.d(TAG, "AUSBCBridgeFragment.initView: ⏰ Delayed check (2s after initView)...")
             
             try {
                 val currentCamera = getCurrentCamera()
-                Log.d(TAG, "  Current camera after delay: ${currentCamera != null}")
+                Log.d(TAG, "AUSBCBridgeFragment.initView:   Current camera after delay: ${currentCamera != null}")
                 
                 if (currentCamera != null) {
-                    Log.d(TAG, "  Camera opened: ${currentCamera.isCameraOpened()}")
-                    Log.d(TAG, "  Camera device: ${currentCamera.getUsbDevice()?.deviceName}")
+                    Log.d(TAG, "AUSBCBridgeFragment.initView:   Camera opened: ${currentCamera.isCameraOpened()}")
+                    Log.d(TAG, "AUSBCBridgeFragment.initView:   Camera device: ${currentCamera.getUsbDevice()?.deviceName}")
                 } else {
-                    Log.w(TAG, "  ❌ Still no camera found after 2 seconds!")
+                    Log.w(TAG, "AUSBCBridgeFragment.initView:   ❌ Still no camera found after 2 seconds!")
                     
                     // Try manual camera opening as last resort
-                    Log.d(TAG, "  🔧 Attempting manual camera opening...")
+                    Log.d(TAG, "AUSBCBridgeFragment.initView:   🔧 Attempting manual camera opening...")
                     openCamera(previewSurface)
                 }
                 
             } catch (e: Exception) {
-                Log.e(TAG, "❌ Error in delayed camera check", e)
+                Log.e(TAG, "AUSBCBridgeFragment.initView: ❌ Error in delayed camera check", e)
                 bridgeCallback?.onCameraError("Camera check failed: ${e.message}")
             }
         }, 2000)
@@ -189,19 +189,25 @@ internal class AUSBCBridgeFragment : CameraFragment() {
         try {
             // Set up preview data callback if frame callback is enabled
             if (cameraConfig.enableFrameCallback) {
-                addPreviewDataCallBack(object : IPreviewDataCallBack {
+                addPreviewDataCallBack(
+                    
+                object : IPreviewDataCallBack {
+
                     override fun onPreviewData(data: ByteArray?, width: Int, height: Int, format: IPreviewDataCallBack.DataFormat) {
                         if (data != null) {
                             bridgeCallback?.onFrameAvailable(data, width, height)
                         }
                     }
-                })
+
+                }
+                
+                )
             }
             
-            Log.d(TAG, "Preview data callback set up")
+            Log.d(TAG, "AUSBCBridgeFragment.initializeCameraForDevice: Preview data callback set up")
             
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to initialize camera", e)
+            Log.e(TAG, "AUSBCBridgeFragment.initializeCameraForDevice: Failed to initialize camera", e)
             bridgeCallback?.onCameraError("Failed to initialize: ${e.message}")
         }
     }
@@ -210,19 +216,19 @@ internal class AUSBCBridgeFragment : CameraFragment() {
      * Handle camera state changes and forward to our callback
      */
     private fun handleCameraState(code: ICameraStateCallBack.State, msg: String?) {
-        Log.d(TAG, "Camera state changed: $code, message: $msg")
+        Log.d(TAG, "AUSBCBridgeFragment.handleCameraState: Camera state changed: $code, message: $msg")
         
         when (code) {
             ICameraStateCallBack.State.OPENED -> {
-                Log.i(TAG, "AUSBC camera opened successfully")
+                Log.i(TAG, "AUSBCBridgeFragment.handleCameraState: AUSBC camera opened successfully")
                 bridgeCallback?.onCameraOpened()
             }
             ICameraStateCallBack.State.CLOSED -> {
-                Log.i(TAG, "AUSBC camera closed")
+                Log.i(TAG, "AUSBCBridgeFragment.handleCameraState: AUSBC camera closed")
                 bridgeCallback?.onCameraClosed()
             }
             ICameraStateCallBack.State.ERROR -> {
-                Log.e(TAG, "AUSBC camera error: $msg")
+                Log.e(TAG, "AUSBCBridgeFragment.handleCameraState: AUSBC camera error: $msg")
                 bridgeCallback?.onCameraError(msg ?: "Unknown camera error")
             }
         }
@@ -249,17 +255,17 @@ internal class AUSBCBridgeFragment : CameraFragment() {
      * This is called by AUSBC framework  
      */
     override fun getCameraRequest(): CameraRequest {
-        Log.d(TAG, "AUSBC requesting camera config")
+        Log.d(TAG, "AUSBCBridgeFragment.getCameraRequest: AUSBC requesting camera config")
         
         return CameraRequest.Builder()
             .setPreviewWidth(cameraConfig.width)
             .setPreviewHeight(cameraConfig.height)
             .setRenderMode(CameraRequest.RenderMode.OPENGL)
             .setDefaultRotateType(RotateType.ANGLE_0)
-            .setAudioSource(CameraRequest.AudioSource.SOURCE_AUTO) // Match usb_22 working config
+            .setAudioSource(CameraRequest.AudioSource.SOURCE_AUTO) // to mute the audio
             .setPreviewFormat(CameraRequest.PreviewFormat.FORMAT_MJPEG)
             .setAspectRatioShow(true)
-            .setCaptureRawImage(false)
+            .setCaptureRawImage(false) // TODO: Check the source code of ausbc to understand what this does
             .setRawPreviewData(cameraConfig.enableFrameCallback)
             .create()
     }
@@ -269,11 +275,11 @@ internal class AUSBCBridgeFragment : CameraFragment() {
      * This is crucial - without this, AUSBC doesn't know which camera to open
      */
     override fun getDefaultCamera(): UsbDevice? {
-        Log.d(TAG, "🎯 AUSBC requesting default camera - returning: ${targetUsbDevice.deviceName}")
-        Log.d(TAG, "  Device ID: ${targetUsbDevice.deviceId}")
-        Log.d(TAG, "  Product name: ${targetUsbDevice.productName}")
-        Log.d(TAG, "  Vendor ID: ${targetUsbDevice.vendorId}")
-        Log.d(TAG, "  Product ID: ${targetUsbDevice.productId}")
+        Log.d(TAG, "AUSBCBridgeFragment.getDefaultCamera: 🎯 AUSBC requesting default camera - returning: ${targetUsbDevice.deviceName}")
+        Log.d(TAG, "AUSBCBridgeFragment.getDefaultCamera:   Device ID: ${targetUsbDevice.deviceId}")
+        Log.d(TAG, "AUSBCBridgeFragment.getDefaultCamera:   Product name: ${targetUsbDevice.productName}")
+        Log.d(TAG, "AUSBCBridgeFragment.getDefaultCamera:   Vendor ID: ${targetUsbDevice.vendorId}")
+        Log.d(TAG, "AUSBCBridgeFragment.getDefaultCamera:   Product ID: ${targetUsbDevice.productId}")
         return targetUsbDevice
     }
 
@@ -286,7 +292,7 @@ internal class AUSBCBridgeFragment : CameraFragment() {
     
     /**
      * Start video recording through AUSBC
-     * Following usb_22 pattern: Let AUSBC use default path to avoid MediaStore issues
+     * for now, we let AUSBC use default path to avoid MediaStore issues
      */
     fun startVideoRecording(outputPath: String, callback: (Boolean, String?) -> Unit) {
         try {
@@ -296,29 +302,34 @@ internal class AUSBCBridgeFragment : CameraFragment() {
                 return
             }
             
-            // Follow usb_22 pattern: DON'T pass custom path - let AUSBC use default path
-            camera.captureVideoStart(object : com.jiangdg.ausbc.callback.ICaptureCallBack {
+            // DON'T pass custom path - let AUSBC use default path
+            camera.captureVideoStart(
+                
+            object : com.jiangdg.ausbc.callback.ICaptureCallBack {
                 override fun onBegin() {
-                    Log.d(TAG, "✅ Video recording started (AUSBC default path)")
+                    Log.d(TAG, "AUSBCBridgeFragment.startVideoRecording: ✅ Video recording started (AUSBC default path)")
                     bridgeCallback?.onRecordingStarted("AUSBC_default_path") // AUSBC will choose path
                     callback(true, null)
                 }
                 
                 override fun onError(error: String?) {
-                    Log.e(TAG, "❌ Video recording error: $error")
+                    Log.e(TAG, "AUSBCBridgeFragment.startVideoRecording: ❌ Video recording error: $error")
                     bridgeCallback?.onRecordingError(error ?: "Recording failed")
                     callback(false, error)
                 }
                 
                 override fun onComplete(path: String?) {
-                    Log.d(TAG, "✅ Video recording completed to AUSBC default path: $path")
+                    Log.d(TAG, "AUSBCBridgeFragment.startVideoRecording: ✅ Video recording completed to AUSBC default path: $path")
                     // Use the actual path AUSBC saved to
                     bridgeCallback?.onRecordingStopped(path ?: "unknown_path")
                 }
-            }) // NO path parameter 
+            }
+            
+
+            ) // NO path parameter 
             
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to start recording", e)
+            Log.e(TAG, "AUSBCBridgeFragment.startVideoRecording: Failed to start recording", e)
             callback(false, e.message)
         }
     }
@@ -329,9 +340,9 @@ internal class AUSBCBridgeFragment : CameraFragment() {
     fun stopVideoRecording() {
         try {
             getCurrentCamera()?.captureVideoStop()
-            Log.d(TAG, "Video recording stop requested")
+            Log.d(TAG, "AUSBCBridgeFragment.stopVideoRecording: Video recording stop requested")
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to stop recording", e)
+            Log.e(TAG, "AUSBCBridgeFragment.stopVideoRecording: Failed to stop recording", e)
             bridgeCallback?.onRecordingError("Failed to stop recording: ${e.message}")
         }
     }
@@ -362,26 +373,26 @@ internal class AUSBCBridgeFragment : CameraFragment() {
      */
     override fun onResume() {
         super.onResume()
-        Log.d(TAG, "🔄 Bridge fragment onResume called")
+        Log.d(TAG, "AUSBCBridgeFragment.onResume: 🔄 Bridge fragment onResume called")
     }
     
     override fun onPause() {
-        Log.d(TAG, "⏸️ Bridge fragment onPause called")
+        Log.d(TAG, "AUSBCBridgeFragment.onPause: ⏸️ Bridge fragment onPause called")
         super.onPause()
     }
     
     override fun onStart() {
         super.onStart()
-        Log.d(TAG, "▶️ Bridge fragment onStart called")
+        Log.d(TAG, "AUSBCBridgeFragment.onStart: ▶️ Bridge fragment onStart called")
     }
     
     override fun onStop() {
-        Log.d(TAG, "⏹️ Bridge fragment onStop called")
+        Log.d(TAG, "AUSBCBridgeFragment.onStop: ⏹️ Bridge fragment onStop called")
         super.onStop()
     }
     
     override fun onDestroyView() {
-        Log.d(TAG, "💥 Destroying bridge fragment view")
+        Log.d(TAG, "AUSBCBridgeFragment.onDestroyView: 💥 Destroying bridge fragment view")
         previewSurface = null
         bridgeCallback = null
         super.onDestroyView()
@@ -392,11 +403,11 @@ internal class AUSBCBridgeFragment : CameraFragment() {
      */
     override fun initData() {
         super.initData()
-        Log.d(TAG, "📊 AUSBC initData called")
+        Log.d(TAG, "AUSBCBridgeFragment.initData: 📊 AUSBC initData called")
     }
     
     override fun clear() {
-        Log.d(TAG, "🧹 AUSBC clear called")
+        Log.d(TAG, "AUSBCBridgeFragment.clear: 🧹 AUSBC clear called")
         super.clear()
     }
 }

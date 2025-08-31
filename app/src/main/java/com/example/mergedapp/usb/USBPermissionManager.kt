@@ -26,7 +26,7 @@ class USBPermissionManager(
         private const val ACTION_USB_PERMISSION = "com.example.mergedapp.USB_PERMISSION"
     }
     
-    private val usbManager: UsbManager = context.getSystemService(Context.USB_SERVICE) as UsbManager
+    private val _usbManager: UsbManager = context.getSystemService(Context.USB_SERVICE) as UsbManager
     private var isReceiverRegistered = false
     
     interface USBPermissionListener {
@@ -143,7 +143,7 @@ class USBPermissionManager(
      * Get all connected USB devices
      */
     fun getConnectedDevices(): List<UsbDevice> {
-        return usbManager.deviceList.values.toList()
+        return _usbManager.deviceList.values.toList()
     }
     
     /**
@@ -157,7 +157,7 @@ class USBPermissionManager(
      * Check if device has USB permission
      */
     fun hasPermission(device: UsbDevice): Boolean {
-        return usbManager.hasPermission(device)
+        return _usbManager.hasPermission(device)
     }
     
     /**
@@ -184,7 +184,7 @@ class USBPermissionManager(
         )
         
         Log.d(TAG, "🔑 Requesting USB permission for: ${device.productName ?: device.deviceName}")
-        usbManager.requestPermission(device, permissionIntent)
+        _usbManager.requestPermission(device, permissionIntent)
     }
     
     /**

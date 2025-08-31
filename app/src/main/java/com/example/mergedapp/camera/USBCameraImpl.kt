@@ -44,7 +44,7 @@ class USBCameraImpl(
     private var currentRecordingPath: String? = null
 
     override fun startCamera(config: CameraConfig, frameCallback: FrameCallback?) {
-        Log.d(TAG, "🚀 Starting USB camera with config: $config")
+        Log.d(TAG, "USBCameraImpl.startCamera: 🚀 Starting USB camera with config: $config")
         
         this.frameCallback = frameCallback
         this.currentConfig = config
@@ -52,12 +52,12 @@ class USBCameraImpl(
         try {
             // Only stop existing camera if there's already one running
             if (bridgeFragment != null) {
-                Log.d(TAG, "🔄 Removing existing bridge fragment first")
+                Log.d(TAG, "USBCameraImpl.startCamera: 🔄 Removing existing bridge fragment first")
                 stopCamera()
             }
             
             // Create and add the bridge fragment
-            Log.d(TAG, "🏗️ Creating new bridge fragment...")
+            Log.d(TAG, "USBCameraImpl.startCamera: 🏗️ Creating new bridge fragment...")
             bridgeFragment = AUSBCBridgeFragment.newInstance(usbDevice, config).apply {
                 bridgeCallback = this@USBCameraImpl
             }
@@ -68,16 +68,16 @@ class USBCameraImpl(
                 .add(android.R.id.content, bridgeFragment!!, BRIDGE_FRAGMENT_TAG)  // Add to content container
                 .commit()
             
-            Log.d(TAG, "🎬 Bridge fragment created and added to activity content container")
+            Log.d(TAG, "USBCameraImpl.startCamera: 🎬 Bridge fragment created and added to activity content container")
             
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to start USB camera", e)
+            Log.e(TAG, "USBCameraImpl.startCamera: Failed to start USB camera", e)
             cameraStateListener?.onCameraError("Failed to start camera: ${e.message}")
         }
     }
 
     override fun stopCamera() {
-        Log.d(TAG, "Stopping USB camera")
+        Log.d(TAG, "USBCameraImpl.stopCamera: Stopping USB camera")
         
         try {
             // Stop recording if active
@@ -98,16 +98,16 @@ class USBCameraImpl(
             frameCallback = null
             currentConfig = null
             
-            Log.d(TAG, "USB camera stopped successfully")
+            Log.d(TAG, "USBCameraImpl.stopCamera: USB camera stopped successfully")
             
         } catch (e: Exception) {
-            Log.e(TAG, "Error stopping USB camera", e)
+            Log.e(TAG, "USBCameraImpl.stopCamera: Error stopping USB camera", e)
             cameraStateListener?.onCameraError("Failed to stop camera: ${e.message}")
         }
     }
 
     override fun startRecording(outputPath: String, callback: RecordingCallback) {
-        Log.d(TAG, "Starting recording to: $outputPath")
+        Log.d(TAG, "USBCameraImpl.startRecording: Starting recording to: $outputPath")
         
         if (bridgeFragment == null) {
             callback.onRecordingError("Camera not initialized")
@@ -138,10 +138,10 @@ class USBCameraImpl(
     }
 
     override fun stopRecording() {
-        Log.d(TAG, "Stopping recording")
+        Log.d(TAG, "USBCameraImpl.stopRecording: Stopping recording")
         
         if (!isCurrentlyRecording) {
-            Log.w(TAG, "Not currently recording")
+            Log.w(TAG, "USBCameraImpl.stopRecording: Not currently recording")
             return
         }
         
@@ -176,17 +176,17 @@ class USBCameraImpl(
 
     // BridgeCallback implementation - these are called by the bridge fragment
     override fun onCameraOpened() {
-        Log.i(TAG, "Camera opened through bridge")
+        Log.i(TAG, "USBCameraImpl.onCameraOpened: Camera opened through bridge")
         cameraStateListener?.onCameraOpened()
     }
 
     override fun onCameraClosed() {
-        Log.i(TAG, "Camera closed through bridge")
+        Log.i(TAG, "USBCameraImpl.onCameraClosed: Camera closed through bridge")
         cameraStateListener?.onCameraClosed()
     }
 
     override fun onCameraError(error: String) {
-        Log.e(TAG, "Camera error through bridge: $error")
+        Log.e(TAG, "USBCameraImpl.onCameraError: Camera error through bridge: $error")
         cameraStateListener?.onCameraError(error)
     }
 
@@ -205,21 +205,21 @@ class USBCameraImpl(
 
     override fun onRecordingStarted(path: String) {
         isCurrentlyRecording = true
-        Log.d(TAG, "Recording started through bridge: $path")
+        Log.d(TAG, "USBCameraImpl.onRecordingStarted: Recording started through bridge: $path")
         recordingCallback?.onRecordingStarted(path)
     }
 
     override fun onRecordingStopped(path: String) {
         isCurrentlyRecording = false
         currentRecordingPath = null
-        Log.d(TAG, "Recording stopped through bridge: $path")
+        Log.d(TAG, "USBCameraImpl.onRecordingStopped: Recording stopped through bridge: $path")
         recordingCallback?.onRecordingStopped(path)
     }
 
     override fun onRecordingError(error: String) {
         isCurrentlyRecording = false
         currentRecordingPath = null
-        Log.e(TAG, "Recording error through bridge: $error")
+        Log.e(TAG, "USBCameraImpl.onRecordingError: Recording error through bridge: $error")
         recordingCallback?.onRecordingError(error)
     }
 }
