@@ -1,5 +1,6 @@
 package com.example.mergedapp.camera.bridge
 
+import android.graphics.Bitmap
 import android.hardware.usb.UsbDevice
 import android.os.Bundle
 import android.util.Log
@@ -13,6 +14,7 @@ import com.jiangdg.ausbc.render.env.RotateType
 import com.jiangdg.ausbc.widget.AspectRatioTextureView
 import com.jiangdg.ausbc.widget.IAspectRatio
 import com.example.mergedapp.camera.CameraConfig
+import com.example.mergedapp.camera.DetectionFrameCallback
 
 /**
  * Internal AUSBC Bridge Fragment
@@ -41,37 +43,56 @@ internal class AUSBCBridgeFragment : CameraFragment() {
     // Configuration passed from USBCameraImpl
     private lateinit var targetUsbDevice: UsbDevice
     private lateinit var cameraConfig: CameraConfig
+
+
     
     // Preview surface for AUSBC
     private var previewSurface: AspectRatioTextureView? = null
     
     // Callbacks to communicate back to USBCameraImpl
     var bridgeCallback: BridgeCallback? = null
+    private var detectionFrameCallback: DetectionFrameCallback? = null
     
     interface BridgeCallback {
         fun onCameraOpened()
         fun onCameraClosed() 
         fun onCameraError(error: String)
-        fun onFrameAvailable(data: ByteArray, width: Int, height: Int)
+        fun onFrameAvailable(data: ByteArray, width: Int, height: Int) // TODO: Why ByteArray ? is this efficient ?
         fun onRecordingStarted(path: String)
         fun onRecordingStopped(path: String)
         fun onRecordingError(error: String)
     }
     
     /**
+     * Set detection frame callback for optimized frame delivery
+     */
+    fun setDetectionFrameCallback(callback: DetectionFrameCallback?) {
+        this.detectionFrameCallback = callback
+        Log.d(TAG, "AUSBCBridgeFragment: Detection frame callback set: ${callback != null}")
+    }
+    
+    /**
      * BaseFragment requires this method - called by AUSBC framework
      */
     override fun getRootView(inflater: LayoutInflater, container: ViewGroup?): View? {
-        Log.d(TAG, "AUSBCBridgeFragment.getRootView: Creating AUSBC bridge fragment root view")
+        Log.d(TAG, "AUSBCBridgeFragment.getRootView: Creating AUSBC bridge fragment root view (showPreview: ${cameraConfig.showPreview})")
         
-        // Create minimal layout with preview surface
+        // If preview is disabled, return minimal or null view for offscreen rendering
+        if (!cameraConfig.showPreview) {
+            Log.d(TAG, "AUSBCBridgeFragment.getRootView: Preview disabled - creating minimal container for offscreen mode")
+            // Return minimal container that won't be visible but satisfies fragment requirements
+            return FrameLayout(requireContext()).apply {
+                layoutParams = ViewGroup.LayoutParams(1, 1) // Minimal size
+                visibility = View.GONE // Hidden
+            }
+        }
+        
+        // Create normal layout with preview surface when preview is enabled
         val rootLayout = FrameLayout(requireContext()).apply {
             layoutParams = ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.MATCH_PARENT
             )
-            
-            // Make visible for AUSBC to work properly - AUSBC might not initialize hidden cameras
             visibility = View.VISIBLE
             setBackgroundColor(0x80000000.toInt()) // Semi-transparent background for debugging
         }
@@ -116,9 +137,9 @@ internal class AUSBCBridgeFragment : CameraFragment() {
         view.postDelayed({
             Log.d(TAG, "AUSBCBridgeFragment.onViewCreated: ⏰ PostDelayed callback executed - view is working")
             
-            // Also try to make the preview surface visible
-            previewSurface?.visibility = View.VISIBLE
-            Log.d(TAG, "AUSBCBridgeFragment.onViewCreated: 🖼️ Made preview surface visible")
+            // Set preview surface visibility based on configuration
+            previewSurface?.visibility = if (cameraConfig.showPreview) View.VISIBLE else View.GONE
+            Log.d(TAG, "AUSBCBridgeFragment.onViewCreated: 🖼️ Set preview surface visibility: ${cameraConfig.showPreview}")
         }, 500)
     }
     
@@ -189,15 +210,23 @@ internal class AUSBCBridgeFragment : CameraFragment() {
      */
     private fun initializeCameraForDevice() {
         try {
-            // Set up preview data callback if frame callback is enabled
-            if (cameraConfig.enableFrameCallback) {
+            // Set up preview data callback if frame callback or detection frames are enabled
+            if (cameraConfig.enableFrameCallback || cameraConfig.enableDetectionFrames) {
                 addPreviewDataCallBack(
                     
                 object : IPreviewDataCallBack {
 
                     override fun onPreviewData(data: ByteArray?, width: Int, height: Int, format: IPreviewDataCallBack.DataFormat) {
                         if (data != null) {
-                            bridgeCallback?.onFrameAvailable(data, width, height)
+                            // Handle legacy frame callback
+                            if (cameraConfig.enableFrameCallback) {
+                                bridgeCallback?.onFrameAvailable(data, width, height)
+                            }
+                            
+                            // Handle optimized detection frames
+                            if (cameraConfig.enableDetectionFrames) {
+                                processDetectionFrame(data, width, height, format)
+                            }
                         }
                     }
 
@@ -239,17 +268,30 @@ internal class AUSBCBridgeFragment : CameraFragment() {
     /**
      * Get the camera view that AUSBC expects
      * This is called by AUSBC framework
+     * Returns null when showPreview is false to enable offscreen rendering
      */
     override fun getCameraView(): IAspectRatio? {
-        return previewSurface
+        return if (cameraConfig.showPreview) {
+            Log.d(TAG, "AUSBCBridgeFragment.getCameraView: Returning preview surface for normal rendering")
+            previewSurface
+        } else {
+            Log.d(TAG, "AUSBCBridgeFragment.getCameraView: Returning null for offscreen rendering")
+            null
+        }
     }
     
     /**
      * Get camera view container that AUSBC expects
      * This is called by AUSBC framework
+     * Returns null when showPreview is false for true offscreen mode
      */
     override fun getCameraViewContainer(): ViewGroup? {
-        return view as? ViewGroup
+        return if (cameraConfig.showPreview) {
+            view as? ViewGroup
+        } else {
+            Log.d(TAG, "AUSBCBridgeFragment.getCameraViewContainer: Returning null for offscreen rendering")
+            null
+        }
     }
     
     /**
@@ -357,17 +399,37 @@ internal class AUSBCBridgeFragment : CameraFragment() {
     }
     
     /**
+     * Toggle preview visibility at runtime
+     * Note: This only affects visibility, not the offscreen rendering mode
+     * For true offscreen mode, use showPreview=false in CameraConfig
+     */
+    fun setPreviewVisibility(visible: Boolean) {
+        if (cameraConfig.showPreview) {
+            view?.visibility = if (visible) View.VISIBLE else View.GONE
+            previewSurface?.visibility = if (visible) View.VISIBLE else View.GONE
+            Log.d(TAG, "AUSBCBridgeFragment.setPreviewVisibility: Set to $visible")
+        } else {
+            Log.d(TAG, "AUSBCBridgeFragment.setPreviewVisibility: Preview disabled in config - ignoring visibility change")
+        }
+    }
+    
+    /**
+     * Check if preview is currently enabled in configuration
+     */
+    fun isPreviewEnabled(): Boolean = cameraConfig.showPreview
+    
+    /**
      * Make the preview surface visible (for debugging)
      */
     fun showPreview() {
-        view?.visibility = View.VISIBLE
+        setPreviewVisibility(true)
     }
     
     /**
      * Hide the preview surface
      */
     fun hidePreview() {
-        view?.visibility = View.GONE
+        setPreviewVisibility(false)
     }
     
     /**
@@ -393,10 +455,82 @@ internal class AUSBCBridgeFragment : CameraFragment() {
         super.onStop()
     }
     
+    /**
+     * Process frame for detection with optimized conversion
+     * Handles both RGBA and NV21 formats from AUSBC
+     */
+    private fun processDetectionFrame(data: ByteArray, width: Int, height: Int, format: IPreviewDataCallBack.DataFormat) {
+        try {
+            val bitmap = when (format) {
+                IPreviewDataCallBack.DataFormat.RGBA -> {
+                    // Efficient RGBA to Bitmap conversion
+                    convertRGBAToBitmap(data, width, height)
+                }
+                IPreviewDataCallBack.DataFormat.NV21 -> {
+                    // Convert NV21 (YUV) to RGB Bitmap
+                    convertNV21ToBitmap(data, width, height)
+                }
+            }
+            
+            if (bitmap != null) {
+                val timestamp = System.currentTimeMillis()
+                detectionFrameCallback?.onDetectionFrameAvailable(
+                    bitmap = bitmap,
+                    rotation = 0, // USB cameras typically don't need rotation
+                    timestamp = timestamp
+                )
+            }
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "Error processing detection frame", e)
+        }
+    }
+    
+    /**
+     * Convert RGBA byte array to Bitmap (efficient for detection)
+     */
+    private fun convertRGBAToBitmap(data: ByteArray, width: Int, height: Int): Bitmap? {
+        return try {
+            val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+            val buffer = java.nio.ByteBuffer.wrap(data)
+            bitmap.copyPixelsFromBuffer(buffer)
+            bitmap
+        } catch (e: Exception) {
+            Log.e(TAG, "Error converting RGBA to Bitmap", e)
+            null
+        }
+    }
+    
+    /**
+     * Convert NV21 (YUV420) byte array to RGB Bitmap
+     * This is a fallback when RGBA is not available
+     */
+    private fun convertNV21ToBitmap(data: ByteArray, width: Int, height: Int): Bitmap? {
+        return try {
+            val yuvImage = android.graphics.YuvImage(
+                data, 
+                android.graphics.ImageFormat.NV21, 
+                width, 
+                height, 
+                null
+            )
+            
+            val out = java.io.ByteArrayOutputStream()
+            yuvImage.compressToJpeg(android.graphics.Rect(0, 0, width, height), 100, out)
+            val imageBytes = out.toByteArray()
+            android.graphics.BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.size)
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "Error converting NV21 to Bitmap", e)
+            null
+        }
+    }
+    
     override fun onDestroyView() {
         Log.d(TAG, "AUSBCBridgeFragment.onDestroyView: 💥 Destroying bridge fragment view")
         previewSurface = null
         bridgeCallback = null
+        detectionFrameCallback = null
         super.onDestroyView()
     }
     

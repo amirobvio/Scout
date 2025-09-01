@@ -36,6 +36,7 @@ class InternalCameraImpl(
     
     // State management
     private var frameCallback: FrameCallback? = null
+    private var detectionFrameCallback: DetectionFrameCallback? = null
     private var recordingCallback: RecordingCallback? = null
     private var cameraStateListener: CameraStateListener? = null
     private var currentConfig: CameraConfig? = null
@@ -48,7 +49,8 @@ class InternalCameraImpl(
     private lateinit var cameraExecutor: ExecutorService
     
     // Frame processing
-    private lateinit var bitmapBuffer: Bitmap
+    private lateinit var bitmapBuffer: Bitmap              // For legacy frame callback
+    private lateinit var detectionBitmapBuffer: Bitmap     // Optimized buffer for detection
 
     override fun startCamera(config: CameraConfig, frameCallback: FrameCallback?) {
         Log.d(TAG, "🚀 Starting internal camera with config: $config")
@@ -91,6 +93,7 @@ class InternalCameraImpl(
             videoCapture = null
             camera = null
             frameCallback = null
+            detectionFrameCallback = null
             currentConfig = null
             
             Log.d(TAG, "Internal camera stopped successfully")
@@ -166,6 +169,11 @@ class InternalCameraImpl(
         this.cameraStateListener = listener
     }
     
+    override fun setDetectionFrameCallback(callback: DetectionFrameCallback?) {
+        this.detectionFrameCallback = callback
+        Log.d(TAG, "Detection frame callback set: ${callback != null}")
+    }
+    
     /**
      * Get preview use case for external surface provider
      */
@@ -205,7 +213,7 @@ class InternalCameraImpl(
             .build()
         
         // Image analysis for frame callbacks (if enabled)
-        if (config.enableFrameCallback) {
+        if (config.enableFrameCallback || config.enableDetectionFrames) {
             imageAnalyzer = ImageAnalysis.Builder()
                 .setTargetAspectRatio(AspectRatio.RATIO_4_3)
                 .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
@@ -213,7 +221,11 @@ class InternalCameraImpl(
                 .build()
                 .also { analyzer ->
                     analyzer.setAnalyzer(cameraExecutor) { imageProxy ->
-                        processFrame(imageProxy)
+                        if (config.enableDetectionFrames) {
+                            processDetectionFrame(imageProxy)
+                        } else {
+                            processFrame(imageProxy)
+                        }
                     }
                 }
         }
@@ -269,7 +281,7 @@ class InternalCameraImpl(
     }
     
     /**
-     * Process frame for callbacks
+     * Process frame for callbacks (legacy CameraFrame format)
      */
     private fun processFrame(imageProxy: ImageProxy) {
         try {
@@ -307,6 +319,43 @@ class InternalCameraImpl(
             
         } catch (e: Exception) {
             Log.e(TAG, "Error processing frame", e)
+        }
+    }
+    
+    /**
+     * Process frame for detection (optimized detection_test pattern)
+     * This uses the same efficient approach as detection_test project
+     */
+    private fun processDetectionFrame(imageProxy: ImageProxy) {
+        try {
+            // Initialize detection bitmap buffer if needed (same as detection_test)
+            if (!::detectionBitmapBuffer.isInitialized) {
+                detectionBitmapBuffer = Bitmap.createBitmap(
+                    imageProxy.width,
+                    imageProxy.height,
+                    Bitmap.Config.ARGB_8888
+                )
+                Log.d(TAG, "Detection bitmap buffer initialized: ${imageProxy.width}x${imageProxy.height}")
+            }
+            
+            // Copy out RGB bits to the shared bitmap buffer (detection_test pattern)
+            imageProxy.use { proxy ->
+                detectionBitmapBuffer.copyPixelsFromBuffer(proxy.planes[0].buffer)
+                
+                // Get rotation and timestamp
+                val rotation = proxy.imageInfo.rotationDegrees
+                val timestamp = System.currentTimeMillis()
+                
+                // Call detection frame callback with ready-to-use Bitmap
+                detectionFrameCallback?.onDetectionFrameAvailable(
+                    bitmap = detectionBitmapBuffer,
+                    rotation = rotation,
+                    timestamp = timestamp
+                )
+            }
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "Error processing detection frame", e)
         }
     }
     

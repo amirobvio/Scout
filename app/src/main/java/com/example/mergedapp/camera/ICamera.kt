@@ -1,5 +1,7 @@
 package com.example.mergedapp.camera
 
+import android.graphics.Bitmap
+
 /**
  * Camera interface for both USB and Internal cameras
  * Provides unified API for camera operations
@@ -41,6 +43,12 @@ interface ICamera {
      * Set camera state listener
      */
     fun setCameraStateListener(listener: CameraStateListener?)
+    
+    /**
+     * Set detection frame callback for optimized frame delivery
+     * This bypasses CameraFrame conversion for better performance
+     */
+    fun setDetectionFrameCallback(callback: DetectionFrameCallback?)
 }
 
 enum class CameraType {
@@ -51,7 +59,8 @@ data class CameraConfig(
     val width: Int = 1280,
     val height: Int = 720,
     val enableFrameCallback: Boolean = false,
-    val pushFramesToQueue: Boolean = false  // Enable frame pushing to detection queue
+    val enableDetectionFrames: Boolean = false,  // Enable optimized detection frame delivery
+    val showPreview: Boolean = false  // Control preview rendering - false enables offscreen mode for recording-only
 )
 
 data class CameraFrame(
@@ -95,6 +104,20 @@ enum class FrameFormat {
  */
 interface FrameCallback {
     fun onFrameAvailable(frame: CameraFrame)
+}
+
+/**
+ * Optimized callback for detection frames
+ * Delivers frames directly as Bitmap for efficient detection processing
+ */
+interface DetectionFrameCallback {
+    /**
+     * Called when a frame is available for detection processing
+     * @param bitmap Frame data as Bitmap (ready for TensorFlow Lite)
+     * @param rotation Image rotation in degrees (0, 90, 180, 270)
+     * @param timestamp Frame timestamp in milliseconds
+     */
+    fun onDetectionFrameAvailable(bitmap: Bitmap, rotation: Int, timestamp: Long)
 }
 
 /**

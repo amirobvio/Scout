@@ -33,6 +33,7 @@ class USBCameraImpl(
     
     // State management
     private var frameCallback: FrameCallback? = null
+    private var detectionFrameCallback: DetectionFrameCallback? = null
     private var recordingCallback: RecordingCallback? = null
     private var cameraStateListener: CameraStateListener? = null
     private var currentConfig: CameraConfig? = null
@@ -94,6 +95,7 @@ class USBCameraImpl(
             // Clear references
             bridgeFragment = null
             frameCallback = null
+            detectionFrameCallback = null
             currentConfig = null
             
             Log.d(TAG, "USB camera stopped successfully")
@@ -153,9 +155,29 @@ class USBCameraImpl(
     override fun isAvailable(): Boolean {
         return bridgeFragment != null
     }
+    
+    /**
+     * Toggle preview visibility at runtime
+     * This only affects UI visibility when preview is enabled in config
+     */
+    fun setPreviewVisibility(visible: Boolean) {
+        bridgeFragment?.setPreviewVisibility(visible)
+    }
+    
+    /**
+     * Check if preview is enabled in the current configuration
+     */
+    fun isPreviewEnabled(): Boolean = bridgeFragment?.isPreviewEnabled() ?: false
 
     override fun setCameraStateListener(listener: CameraStateListener?) {
         this.cameraStateListener = listener
+    }
+    
+    override fun setDetectionFrameCallback(callback: DetectionFrameCallback?) {
+        this.detectionFrameCallback = callback
+        // Pass to bridge fragment if it exists
+        bridgeFragment?.setDetectionFrameCallback(callback)
+        Log.d(TAG, "Detection frame callback set: ${callback != null}")
     }
     
     /**
