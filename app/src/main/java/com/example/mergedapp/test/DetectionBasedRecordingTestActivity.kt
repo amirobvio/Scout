@@ -55,6 +55,7 @@ class DetectionBasedRecordingTestActivity : AppCompatActivity(),
     
     // State tracking
     private var isSystemReady = false
+    private var isInternalCameraInitialized = false
     private val logMessages = mutableListOf<String>()
     private val maxLogMessages = 20
 
@@ -75,6 +76,11 @@ class DetectionBasedRecordingTestActivity : AppCompatActivity(),
         Handler(Looper.getMainLooper()).postDelayed({
             initializeUSBMonitoring()
         }, 2000)
+        
+        // Initialize internal camera with delay (after permissions)
+        Handler(Looper.getMainLooper()).postDelayed({
+            initializeInternalCamera()
+        }, 3000)
         
         // Start stats updates
         startStatsUpdates()
@@ -102,7 +108,7 @@ class DetectionBasedRecordingTestActivity : AppCompatActivity(),
         
         // Title
         val titleText = TextView(this).apply {
-            text = "🎯 Detection-Based Recording Test"
+            text = "🎯 Detection-Based Recording Test\n📷 USB + Internal Cameras"
             textSize = 20f
             setTextColor(0xFF4CAF50.toInt())
             gravity = Gravity.CENTER
@@ -130,7 +136,7 @@ class DetectionBasedRecordingTestActivity : AppCompatActivity(),
         
         // Stats section
         statsText = TextView(this).apply {
-            text = "📊 Detection Statistics:\nFrames Processed: 0\nConsecutive Non-Detections: 0\nInference Time: 0ms\nRecording Status: Not active"
+            text = "📊 Detection Statistics:\n\n🔌 USB Camera:\nFrames: 0 | Non-Detections: 0 | Status: ⚪ WAITING\n\n📱 Internal Camera:\nFrames: 0 | Non-Detections: 0 | Status: ⚪ WAITING"
             textSize = 14f
             setTextColor(0xFF81C784.toInt())
             setBackgroundColor(0xFF1B5E20.toInt())
@@ -214,6 +220,43 @@ class DetectionBasedRecordingTestActivity : AppCompatActivity(),
         usbPermissionManager.checkAndRequestPermissions()
     }
     
+    private fun initializeInternalCamera() {
+        Log.d(TAG, logFormat("initializeInternalCamera", "Initializing internal camera"))
+        
+        // Check if we have camera permission
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
+            Log.w(TAG, logFormat("initializeInternalCamera", "Camera permission not granted yet"))
+            return
+        }
+        
+        // Check if detection recorder is initialized
+        if (detectionRecorder == null) {
+            Log.d(TAG, logFormat("initializeInternalCamera", "Detection recorder not ready, creating new instance"))
+            detectionRecorder = DetectionBasedRecorder(
+                context = this,
+                activityContext = this
+            )
+            detectionRecorder?.setRecordingStateListener(this)
+            detectionRecorder?.initialize()
+        }
+        
+        try {
+            updateStatus("🔄 Initializing Internal Camera...")
+            addLogMessage("Initializing internal camera for detection...")
+            
+            // Initialize internal camera through DetectionBasedRecorder
+            detectionRecorder?.initializeInternalCamera()
+            
+            isInternalCameraInitialized = true
+            
+            Log.d(TAG, logFormat("initializeInternalCamera", "Internal camera initialization started"))
+            
+        } catch (e: Exception) {
+            Log.e(TAG, logFormat("initializeInternalCamera", "Failed to initialize internal camera: ${e.message}"), e)
+            addLogMessage("ERROR: Failed to initialize internal camera - ${e.message}")
+        }
+    }
+    
     private fun startStatsUpdates() {
         statsUpdateHandler = Handler(Looper.getMainLooper())
         statsUpdateRunnable = object : Runnable {
@@ -226,16 +269,25 @@ class DetectionBasedRecordingTestActivity : AppCompatActivity(),
     }
     
     private fun updateStatsDisplay() {
-        if (!isSystemReady) return
+        if (!isSystemReady && !isInternalCameraInitialized) return
         
         val stats = detectionRecorder?.getDetectionStats()
         if (stats != null) {
             runOnUiThread {
                 statsText?.text = buildString {
-                    append("📊 Detection Statistics:\n")
-                    append("USB Frames Processed: ${stats.usbFramesProcessed}\n")
-                    append("USB Consecutive Non-Detections: ${stats.usbConsecutiveNonDetections}\n")
-                    append("USB Recording Status: ${if (stats.isUSBRecording) "🔴 RECORDING" else "⚪ WAITING"}")
+                    append("📊 Detection Statistics:\n\n")
+                    
+                    // USB Camera stats
+                    append("🔌 USB Camera:\n")
+                    append("Frames: ${stats.usbFramesProcessed} | ")
+                    append("Non-Detections: ${stats.usbConsecutiveNonDetections} | ")
+                    append("Status: ${if (stats.isUSBRecording) "🔴 RECORDING" else "⚪ WAITING"}\n\n")
+                    
+                    // Internal Camera stats
+                    append("📱 Internal Camera:\n")
+                    append("Frames: ${stats.internalFramesProcessed} | ")
+                    append("Non-Detections: ${stats.internalConsecutiveNonDetections} | ")
+                    append("Status: ${if (stats.isInternalRecording) "🔴 RECORDING" else "⚪ WAITING"}")
                 }
             }
         }
@@ -332,6 +384,7 @@ class DetectionBasedRecordingTestActivity : AppCompatActivity(),
     
     private fun shutdownDetectionSystem() {
         isSystemReady = false
+        isInternalCameraInitialized = false
         
         try {
             detectionRecorder?.stopMonitoring()
@@ -339,7 +392,7 @@ class DetectionBasedRecordingTestActivity : AppCompatActivity(),
             
             detectionRecorder = null
             
-            addLogMessage("Detection system shut down")
+            addLogMessage("Detection system shut down (both cameras)")
             
         } catch (e: Exception) {
             Log.e(TAG, logFormat("shutdownDetectionSystem", "Error shutting down detection system: ${e.message}"), e)
@@ -349,7 +402,8 @@ class DetectionBasedRecordingTestActivity : AppCompatActivity(),
     private fun onUSBCameraReady() {
         Log.i(TAG, logFormat("onUSBCameraReady", "USB Camera opened successfully via DetectionBasedRecorder"))
         runOnUiThread {
-            updateStatus("✅ USB Camera Ready\n🎯 Detection monitoring active...")
+            val internalStatus = if (isInternalCameraInitialized) "\n📱 Internal Camera also active" else ""
+            updateStatus("✅ USB Camera Ready$internalStatus\n🎯 Detection monitoring active...")
             addLogMessage("USB camera opened successfully")
             
             isSystemReady = true
@@ -357,53 +411,94 @@ class DetectionBasedRecordingTestActivity : AppCompatActivity(),
         }
     }
     
+    private fun onInternalCameraReady() {
+        Log.i(TAG, logFormat("onInternalCameraReady", "Internal Camera opened successfully via DetectionBasedRecorder"))
+        runOnUiThread {
+            val usbStatus = if (isSystemReady) "\n🔌 USB Camera also active" else ""
+            updateStatus("✅ Internal Camera Ready$usbStatus\n🎯 Detection monitoring active...")
+            addLogMessage("Internal camera opened successfully")
+            
+            isInternalCameraInitialized = true
+            addLogMessage("Internal camera active, looking for target object")
+        }
+    }
+    
     // DetectionBasedRecorder.RecordingStateListener implementation
     override fun onRecordingStarted(cameraType: CameraType, outputPath: String) {
-        // Check if this is the first successful camera operation - indicates camera is ready
-        if (!isSystemReady && cameraType == CameraType.USB) {
-            onUSBCameraReady()
+        val cameraName = when (cameraType) {
+            CameraType.USB -> "🔌 USB"
+            CameraType.INTERNAL -> "📱 Internal"
         }
         
-        addLogMessage("🔴 Object detected, recording started")
-        updateStatus("🔴 RECORDING ACTIVE\nTarget object detected!\nSaving to: ${outputPath.substringAfterLast("/")}")
+        addLogMessage("🔴 $cameraName: Object detected, recording started")
+        updateStatus("🔴 RECORDING ACTIVE ($cameraName)\nTarget object detected!\nSaving to: ${outputPath.substringAfterLast("/")}")
     }
     
     override fun onRecordingStopped(cameraType: CameraType, outputPath: String) {
-        addLogMessage("⚪ No object detected, recording saved")
-        updateStatus("✅ Recording Saved\n📁 ${outputPath.substringAfterLast("/")}\n🎯 Looking for target object...")
+        val cameraName = when (cameraType) {
+            CameraType.USB -> "🔌 USB"
+            CameraType.INTERNAL -> "📱 Internal"
+        }
+        
+        addLogMessage("⚪ $cameraName: No object detected, recording saved")
+        updateStatus("✅ Recording Saved ($cameraName)\n📁 ${outputPath.substringAfterLast("/")}\n🎯 Looking for target object...")
         
         // Show brief success message
         Handler(Looper.getMainLooper()).postDelayed({
-            if (isSystemReady) {
-                updateStatus("🎯 USB Camera Active\nLooking for target object...")
-                addLogMessage("USB camera active, looking for target object")
+            if (isSystemReady || isInternalCameraInitialized) {
+                val activeCameras = buildString {
+                    if (isSystemReady) append("🔌 USB")
+                    if (isSystemReady && isInternalCameraInitialized) append(" + ")
+                    if (isInternalCameraInitialized) append("📱 Internal")
+                }
+                updateStatus("🎯 Cameras Active ($activeCameras)\nLooking for target object...")
+                addLogMessage("Cameras active, looking for target object")
             }
         }, 3000)
     }
     
     override fun onRecordingError(cameraType: CameraType, error: String) {
-        addLogMessage("❌ Recording error: $error")
-        updateStatus("❌ Recording Error\n$error\n🎯 Continuing detection...")
+        val cameraName = when (cameraType) {
+            CameraType.USB -> "🔌 USB"
+            CameraType.INTERNAL -> "📱 Internal"
+        }
+        
+        addLogMessage("❌ $cameraName: Recording error - $error")
+        updateStatus("❌ Recording Error ($cameraName)\n$error\n🎯 Continuing detection...")
         
         // If this is a camera initialization error, show it prominently
         if (error.contains("initialize") || error.contains("Camera error")) {
-            Toast.makeText(this, "Camera error: $error", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "$cameraName camera error: $error", Toast.LENGTH_LONG).show()
         }
     }
     
     override fun onDetectionStateChanged(cameraType: CameraType, hasDetection: Boolean, objectCount: Int) {
-        // Check if this is the first detection event - indicates camera is ready
-        if (!isSystemReady && cameraType == CameraType.USB) {
+        // Check if this is the first detection state change - indicates camera is processing frames
+        if (cameraType == CameraType.USB && !isSystemReady) {
             onUSBCameraReady()
+        } else if (cameraType == CameraType.INTERNAL && !isInternalCameraInitialized) {
+            onInternalCameraReady()
+        }
+        
+        val cameraName = when (cameraType) {
+            CameraType.USB -> "🔌 USB"
+            CameraType.INTERNAL -> "📱 Internal"
         }
         
         if (hasDetection) {
-            addLogMessage("👁️ Target object detected (count: $objectCount)")
+            addLogMessage("👁️ $cameraName: Target object detected (count: $objectCount)")
         } else {
             // Don't log every non-detection to avoid spam
             val stats = detectionRecorder?.getDetectionStats()
-            if (stats != null && stats.usbConsecutiveNonDetections > 0 && stats.usbConsecutiveNonDetections % 2 == 0) {
-                addLogMessage("⏳ Still looking... (${stats.usbConsecutiveNonDetections} frames without detection)")
+            if (stats != null) {
+                val consecutiveNonDetections = when (cameraType) {
+                    CameraType.USB -> stats.usbConsecutiveNonDetections
+                    CameraType.INTERNAL -> stats.internalConsecutiveNonDetections
+                }
+                
+                if (consecutiveNonDetections > 0 && consecutiveNonDetections % 5 == 0) {
+                    addLogMessage("⏳ $cameraName: Still looking... ($consecutiveNonDetections frames without detection)")
+                }
             }
         }
     }

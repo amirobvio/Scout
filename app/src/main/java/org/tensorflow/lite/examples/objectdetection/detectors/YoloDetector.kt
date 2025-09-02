@@ -100,7 +100,7 @@ class YoloDetector(
         val ppImage = yolo.preprocess(bitmap)
         val results = yolo.predict(ppImage)
 
-        val detections = ArrayList<ObjectDetection>()
+        val detections = ArrayList<DetectionObject>()
 
         // ASPECT_RATIO = 4:3
         // => imgW = imgH * 3/4
@@ -135,7 +135,7 @@ class YoloDetector(
                 right,
                 bottom
             )
-            val detection = ObjectDetection(
+            val detection = DetectionObject(
                 bbox,
                 category
             )

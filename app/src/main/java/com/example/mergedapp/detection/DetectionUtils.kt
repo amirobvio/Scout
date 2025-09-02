@@ -1,6 +1,6 @@
 package com.example.mergedapp.detection
 
-import org.tensorflow.lite.examples.objectdetection.detectors.ObjectDetection
+import org.tensorflow.lite.examples.objectdetection.detectors.DetectionObject
 
 /**
  * Utility functions for detection operations
@@ -13,7 +13,7 @@ object DetectionUtils {
      * @param targetLabel Label to search for (case-insensitive)
      * @return true if at least one object with the target label is found
      */
-    fun hasObjectType(detections: List<ObjectDetection>, targetLabel: String): Boolean {
+    fun hasObjectType(detections: List<DetectionObject>, targetLabel: String): Boolean {
         return detections.any { detection ->
             detection.category.label.lowercase().contains(targetLabel.lowercase())
         }
@@ -25,7 +25,7 @@ object DetectionUtils {
      * @param targetLabel Label to search for (case-insensitive)
      * @return List of detections matching the target label
      */
-    fun getObjectsOfType(detections: List<ObjectDetection>, targetLabel: String): List<ObjectDetection> {
+    fun getObjectsOfType(detections: List<DetectionObject>, targetLabel: String): List<DetectionObject> {
         return detections.filter { detection ->
             detection.category.label.lowercase().contains(targetLabel.lowercase())
         }
@@ -36,7 +36,7 @@ object DetectionUtils {
      * @param detections List of detected objects
      * @return ObjectDetection with highest confidence, or null if list is empty
      */
-    fun getHighestConfidenceDetection(detections: List<ObjectDetection>): ObjectDetection? {
+    fun getHighestConfidenceDetection(detections: List<DetectionObject>): DetectionObject? {
         return detections.maxByOrNull { it.category.confidence }
     }
     
@@ -46,7 +46,7 @@ object DetectionUtils {
      * @param minConfidence Minimum confidence threshold (0.0 to 1.0)
      * @return List of detections above the confidence threshold
      */
-    fun filterByConfidence(detections: List<ObjectDetection>, minConfidence: Float): List<ObjectDetection> {
+    fun filterByConfidence(detections: List<DetectionObject>, minConfidence: Float): List<DetectionObject> {
         return detections.filter { it.category.confidence >= minConfidence }
     }
     
@@ -55,7 +55,7 @@ object DetectionUtils {
      * @param detections List of detected objects
      * @return Set of unique labels
      */
-    fun getUniqueLabels(detections: List<ObjectDetection>): Set<String> {
+    fun getUniqueLabels(detections: List<DetectionObject>): Set<String> {
         return detections.map { it.category.label }.toSet()
     }
     
@@ -64,7 +64,7 @@ object DetectionUtils {
      * @param detections List of detected objects
      * @return Formatted string for logging
      */
-    fun formatDetectionResults(detections: List<ObjectDetection>): String {
+    fun formatDetectionResults(detections: List<DetectionObject>): String {
         if (detections.isEmpty()) {
             return "No objects detected"
         }

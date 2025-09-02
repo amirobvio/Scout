@@ -9,14 +9,14 @@ class Category (
     val confidence: Float
 )
 
-class ObjectDetection(
+class DetectionObject(
     val boundingBox: RectF,
     val category: Category
 )
 
 class DetectionResult(
     val image: Bitmap,
-    val detections: List<ObjectDetection>,
+    val detections: List<DetectionObject>,
     var info: Any?=null
 )
 

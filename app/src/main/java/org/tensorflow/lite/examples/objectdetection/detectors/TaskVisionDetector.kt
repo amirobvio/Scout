@@ -39,12 +39,12 @@ class TaskVisionDetector(
         val tvDetections = objectDetector.detect(tensorImage)
 
         // Convert task view detections to common interface
-        val detections = LinkedList<ObjectDetection>()
+        val detections = LinkedList<DetectionObject>()
         for (tvDetection: Detection in tvDetections) {
 
             val cat = tvDetection.categories[0]
 
-            val objDet = ObjectDetection(
+            val objDet = DetectionObject(
                 boundingBox = tvDetection.boundingBox,
                 category = Category(
                     cat.label,

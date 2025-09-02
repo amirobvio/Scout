@@ -7,7 +7,7 @@ import android.os.Looper
 import android.os.SystemClock
 import android.util.Log
 import com.example.mergedapp.camera.CameraType
-import org.tensorflow.lite.examples.objectdetection.detectors.ObjectDetection
+import org.tensorflow.lite.examples.objectdetection.detectors.DetectionObject
 import org.tensorflow.lite.examples.objectdetection.detectors.ObjectDetector
 import org.tensorflow.lite.examples.objectdetection.detectors.TaskVisionDetector
 import org.tensorflow.lite.examples.objectdetection.detectors.YoloDetector
@@ -82,7 +82,7 @@ class DetectionModule(
          * @param cameraType The camera type that this detection result belongs to
          */
         fun onDetectionResults(
-            results: List<ObjectDetection>,
+            results: List<DetectionObject>,
             inferenceTime: Long,
             imageWidth: Int,
             imageHeight: Int,
@@ -221,7 +221,7 @@ class DetectionModule(
             // Create temporary listener for sync operation
             val tempListener = object : DetectionListener {
                 override fun onDetectionResults(
-                    results: List<ObjectDetection>,
+                    results: List<DetectionObject>,
                     inferenceTime: Long,
                     imageWidth: Int,
                     imageHeight: Int,
@@ -409,7 +409,7 @@ class DetectionModule(
  * Data class to hold detection results
  */
 data class DetectionResults(
-    val detections: List<ObjectDetection>,
+    val detections: List<DetectionObject>,
     val hasDetection: Boolean,
     val inferenceTime: Long,
     val imageWidth: Int,

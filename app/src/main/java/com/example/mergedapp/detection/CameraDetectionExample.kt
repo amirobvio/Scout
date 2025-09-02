@@ -4,9 +4,7 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.util.Log
 import com.example.mergedapp.camera.CameraType
-import com.example.mergedapp.detection.DetectionModule
-import com.example.mergedapp.detection.DetectionUtils
-import org.tensorflow.lite.examples.objectdetection.detectors.ObjectDetection
+import org.tensorflow.lite.examples.objectdetection.detectors.DetectionObject
 import java.util.concurrent.atomic.AtomicLong
 
 /**
@@ -77,7 +75,7 @@ class CameraDetectionExample(
     
     // DetectionModule.DetectionListener implementation
     override fun onDetectionResults(
-        results: List<ObjectDetection>,
+        results: List<DetectionObject>,
         inferenceTime: Long,
         imageWidth: Int,
         imageHeight: Int,
@@ -112,7 +110,7 @@ class CameraDetectionExample(
     /**
      * Example handlers for specific object types
      */
-    private fun onLaptopDetected(detections: List<ObjectDetection>) {
+    private fun onLaptopDetected(detections: List<DetectionObject>) {
         // This is where you'd trigger recording or other actions
         Log.d(TAG, "Laptop detection handler triggered")
         
@@ -129,7 +127,7 @@ class CameraDetectionExample(
         // detectionRecorder.onObjectDetected("laptop", detections)
     }
     
-    private fun onPersonDetected(detections: List<ObjectDetection>) {
+    private fun onPersonDetected(detections: List<DetectionObject>) {
         Log.d(TAG, "Person detection handler triggered")
         // Similar logic for person detection
     }

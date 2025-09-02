@@ -9,7 +9,7 @@ import android.util.Log
 import androidx.appcompat.app.AppCompatActivity
 import com.example.mergedapp.camera.*
 import org.tensorflow.lite.examples.objectdetection.config.DetectionConfig
-import org.tensorflow.lite.examples.objectdetection.detectors.ObjectDetection
+import org.tensorflow.lite.examples.objectdetection.detectors.DetectionObject
 import java.io.File
 import java.util.concurrent.Executors
 import java.util.concurrent.ExecutorService
@@ -59,11 +59,11 @@ class DetectionBasedRecorder(
     // Detection module for object detection
     private val detectionModule = DetectionModule(context, this)
     
-    // Threading
+    // TODO: Check if threading approach is better or worse 
     private val detectionExecutor: ExecutorService = Executors.newSingleThreadExecutor()
     private val mainHandler = Handler(Looper.getMainLooper())
     
-    // State management
+    // TODO: Check if we can remove this. This may not be useful 
     private val isInitialized = AtomicBoolean(false)
     
     // Frame counting for detection interval (same as detection_test)
@@ -78,10 +78,13 @@ class DetectionBasedRecorder(
     private var activityContext: AppCompatActivity? = null
     private var managedUSBCamera: USBCameraImpl? = null
     private var managedInternalCamera: InternalCameraImpl? = null
-    private var currentUsbDevice: UsbDevice? = null
+
     
     // Recording listeners
     private var recordingListener: RecordingStateListener? = null
+
+    // target objects 
+    private val targetObjects = listOf("laptop")
     
     /**
      * Interface for receiving recording state updates
@@ -107,8 +110,8 @@ class DetectionBasedRecorder(
             detectionModule.initialize()
             
             // Set detection frame callbacks on cameras
-            getActiveUSBCamera()?.setDetectionFrameCallback(this)
-            getActiveInternalCamera()?.setDetectionFrameCallback(this)
+            managedUSBCamera?.setDetectionFrameCallback(this)
+            managedInternalCamera?.setDetectionFrameCallback(this)
             
             isInitialized.set(true)
             Log.d(TAG, logFormat("initialize", "DetectionBasedRecorder initialized successfully"))
@@ -129,15 +132,16 @@ class DetectionBasedRecorder(
         
         try {
             Log.d(TAG, logFormat("initializeUSBCamera", "Initializing USB camera with device: ${device.productName ?: device.deviceName}"))
-            currentUsbDevice = device
+
             
             // Create managed USB camera
             managedUSBCamera = USBCameraImpl(activityContext!!, device, activityContext!!)
             managedUSBCamera?.setCameraStateListener(this)
             
-            // Start camera with detection configuration
+
+            // TODO: Check if this resolution is for preview or recording
             val config = CameraConfig(
-                width = 1280,
+                width = 1280, 
                 height = 720,
                 enableFrameCallback = false,
                 enableDetectionFrames = true,
@@ -145,6 +149,9 @@ class DetectionBasedRecorder(
             )
             
             managedUSBCamera?.startCamera(config)
+            
+            // TODO: check why we are again setting this ? we are setting already in initialize
+            managedUSBCamera?.setDetectionFrameCallback(this)
             
         } catch (e: Exception) {
             Log.e(TAG, logFormat("initializeUSBCamera", "Failed to initialize USB camera: ${e.message}"), e)
@@ -179,90 +186,69 @@ class DetectionBasedRecorder(
             
             managedInternalCamera?.startCamera(config)
             
+            // TODO: Check why again ?
+            managedInternalCamera?.setDetectionFrameCallback(this)
+            
         } catch (e: Exception) {
             Log.e(TAG, logFormat("initializeInternalCamera", "Failed to initialize internal camera: ${e.message}"), e)
             recordingListener?.onRecordingError(CameraType.INTERNAL, "Failed to initialize internal camera: ${e.message}")
         }
     }
     
-    /**
-     * Set recording state listener
-     */
     fun setRecordingStateListener(listener: RecordingStateListener?) {
         this.recordingListener = listener
     }
-    
-    /**
-     * Start detection-based recording monitoring
-     * Cameras should already be started with enableDetectionFrames = true
-     */
+
     fun startMonitoring() {
         if (!isInitialized.get()) {
             Log.w(TAG, logFormat("startMonitoring", "DetectionBasedRecorder not initialized. Call initialize() first."))
             return
         }
+
+        managedUSBCamera?.setDetectionFrameCallback(this)
+        managedInternalCamera?.setDetectionFrameCallback(this)
+        Log.d(TAG, logFormat("startMonitoring", "Detection frame callbacks set - USB: ${managedUSBCamera != null}, Internal: ${managedInternalCamera != null}"))
         
-        Log.d(TAG, logFormat("startMonitoring", "Starting detection-based recording monitoring"))
-        
-        // Set detection frame callbacks on active cameras
-        Log.d(TAG, logFormat("startMonitoring", "Setting detection frame callbacks on cameras"))
-        getActiveUSBCamera()?.setDetectionFrameCallback(this)
-        getActiveInternalCamera()?.setDetectionFrameCallback(this)
-        Log.d(TAG, logFormat("startMonitoring", "Detection frame callbacks set - USB: ${getActiveUSBCamera() != null}, Internal: ${getActiveInternalCamera() != null}"))
-        
-        // Reset counters
+
         usbFrameCounter.set(0)
         internalFrameCounter.set(0)
         usbConsecutiveNonDetections.set(0)
         internalConsecutiveNonDetections.set(0)
     }
     
-    /**
-     * Stop detection-based recording monitoring
-     */
+    
     fun stopMonitoring() {
         Log.d(TAG, logFormat("stopMonitoring", "Stopping detection-based recording monitoring"))
         
-        // Stop any active recordings
-        getActiveUSBCamera()?.let { camera ->
+        managedUSBCamera?.let { camera ->
             if (camera.isRecording()) {
                 camera.stopRecording()
             }
         }
-        
-        getActiveInternalCamera()?.let { camera ->
+        managedInternalCamera?.let { camera ->
             if (camera.isRecording()) {
                 camera.stopRecording()
             }
         }
     }
-    
-    /**
-     * Shutdown the detection-based recorder
-     */
+
     fun shutdown() {
         try {
             stopMonitoring()
             isInitialized.set(false)
             
-            // Stop and cleanup managed cameras
             managedUSBCamera?.stopCamera()
             managedInternalCamera?.stopCamera()
+
+            managedUSBCamera?.setDetectionFrameCallback(null)
+            managedInternalCamera?.setDetectionFrameCallback(null)
             
-            // Clear detection callbacks
-            getActiveUSBCamera()?.setDetectionFrameCallback(null)
-            getActiveInternalCamera()?.setDetectionFrameCallback(null)
-            
-            // Cleanup managed cameras
             managedUSBCamera = null
             managedInternalCamera = null
-            currentUsbDevice = null
-            
-            // Shutdown detection module
+
             detectionModule.shutdown()
-            
-            // Properly shutdown executor with timeout
             detectionExecutor.shutdown()
+
             try {
                 if (!detectionExecutor.awaitTermination(2, TimeUnit.SECONDS)) {
                     detectionExecutor.shutdownNow()
@@ -282,7 +268,7 @@ class DetectionBasedRecorder(
         }
     }
     
-    // DetectionFrameCallback implementation
+
     override fun onDetectionFrameAvailable(bitmap: Bitmap, rotation: Int, timestamp: Long, source: CameraType) {
         Log.d(TAG, logFormat("onDetectionFrameAvailable", "🎯 FRAME_RECEIVED - ${source} camera: ${bitmap.width}x${bitmap.height}"))
         
@@ -291,9 +277,7 @@ class DetectionBasedRecorder(
             return
         }
 
-        Log.d(TAG, logFormat("onDetectionFrameAvailable", "Received detection frame from $source camera"))
-        
-        // Apply frame interval logic (same as detection_test)
+
         val shouldProcess = when (source) {
             CameraType.USB -> {
                 val currentFrame = usbFrameCounter.incrementAndGet()
@@ -308,7 +292,6 @@ class DetectionBasedRecorder(
         if (shouldProcess) {
             Log.d(TAG, logFormat("onDetectionFrameAvailable", "🔄 PROCESSING_FRAME - Frame #${when(source) { CameraType.USB -> usbFrameCounter.get(); CameraType.INTERNAL -> internalFrameCounter.get() }} from $source camera"))
             
-            // Process frame asynchronously (non-blocking)
             detectionExecutor.submit {
                 try {
                     processDetectionFrame(bitmap, rotation, source, timestamp)
@@ -320,24 +303,18 @@ class DetectionBasedRecorder(
             Log.v(TAG, logFormat("onDetectionFrameAvailable", "⏭️ FRAME_SKIPPED - Frame #${when(source) { CameraType.USB -> usbFrameCounter.get(); CameraType.INTERNAL -> internalFrameCounter.get() }} from $source camera (interval)"))
         }
     }
-    
-    /**
-     * Process detection frame on background thread
-     */
+
     @Suppress("UNUSED_PARAMETER")
     private fun processDetectionFrame(bitmap: Bitmap, rotation: Int, cameraType: CameraType, timestamp: Long) {
         Log.d(TAG, logFormat("processDetectionFrame", "🧠 SENDING_TO_DETECTION - ${cameraType} frame ${bitmap.width}x${bitmap.height} to DetectionModule"))
-        
         detectionModule.processFrameAsync(bitmap, rotation, cameraType)
-        
-        Log.d(TAG, logFormat("processDetectionFrame", "✅ SENT_TO_DETECTION - Awaiting results from DetectionModule"))
         // Results will come back via onDetectionResults callback with camera type included
     }
     
 
     // DetectionModule.DetectionListener implementation
     override fun onDetectionResults(
-        results: List<ObjectDetection>,
+        results: List<DetectionObject>,
         inferenceTime: Long,
         imageWidth: Int,
         imageHeight: Int,
@@ -347,40 +324,36 @@ class DetectionBasedRecorder(
             handleDetectionResults(results, inferenceTime, imageWidth, imageHeight, cameraType)
         }
     }
-    
-    override fun onDetectionError(error: String, cameraType: CameraType) {
-        Log.e(TAG, logFormat("onDetectionError", "Detection error from $cameraType camera: $error"))
-        mainHandler.post {
-            recordingListener?.onRecordingError(cameraType, "Detection error: $error")
-        }
-    }
-    
-    /**
-     * Handle detection results and manage recording logic for a specific camera
-     */
+
     @Suppress("UNUSED_PARAMETER")
     private fun handleDetectionResults(
-        results: List<ObjectDetection>,
+        results: List<DetectionObject>,
         inferenceTime: Long,
         imageWidth: Int,
         imageHeight: Int,
         cameraType: CameraType
     ) {
-        val hasDetection = results.isNotEmpty()
+        val hasDetection = results.any { detection ->
+            targetObjects.any { targetObject ->
+                detection.category.label.lowercase().contains(targetObject.lowercase())
+            }
+        }
+
+        
         val objectCount = results.size
         
         Log.d(TAG, logFormat("handleDetectionResults", "Detection results from $cameraType camera: ${results.size} objects found in ${inferenceTime}ms"))
         
         // Log detected objects for debugging
-        if (hasDetection) {
-            val detectedLabels = results.map { "${it.category.label}(${String.format("%.2f", it.category.confidence)})" }
-            Log.d(TAG, logFormat("handleDetectionResults", "Detected objects from $cameraType camera: ${detectedLabels.joinToString(", ")}"))
-        }
+        // if (hasDetection) {
+        //     val detectedLabels = results.map { "${it.category.label}(${String.format("%.2f", it.category.confidence)})" }
+        //     Log.d(TAG, logFormat("handleDetectionResults", "Detected objects from $cameraType camera: ${detectedLabels.joinToString(", ")}"))
+        // }
         
         // Get the camera instance for this detection result
         val camera = when (cameraType) {
-            CameraType.USB -> getActiveUSBCamera()
-            CameraType.INTERNAL -> getActiveInternalCamera()
+            CameraType.USB -> managedUSBCamera
+            CameraType.INTERNAL -> managedInternalCamera
         }
         
         if (camera == null || !camera.isAvailable()) return
@@ -422,10 +395,18 @@ class DetectionBasedRecorder(
             recordingListener?.onDetectionStateChanged(cameraType, false, 0)
         }
     }
-    
-    /**
-     * Start recording for a specific camera
-     */
+
+
+
+
+    override fun onDetectionError(error: String, cameraType: CameraType) {
+        Log.e(TAG, logFormat("onDetectionError", "Detection error from $cameraType camera: $error"))
+        mainHandler.post {
+            recordingListener?.onRecordingError(cameraType, "Detection error: $error")
+        }
+    }
+
+
     private fun startRecordingForCamera(camera: ICamera, cameraType: CameraType) {
         try {
             val timestamp = System.currentTimeMillis()
@@ -464,10 +445,7 @@ class DetectionBasedRecorder(
             recordingListener?.onRecordingError(cameraType, "Failed to start recording: ${e.message}")
         }
     }
-    
-    /**
-     * Stop recording for a specific camera
-     */
+
     private fun stopRecordingForCamera(camera: ICamera, cameraType: CameraType) {
         try {
             camera.stopRecording()
@@ -478,10 +456,7 @@ class DetectionBasedRecorder(
             recordingListener?.onRecordingError(cameraType, "Failed to stop recording: ${e.message}")
         }
     }
-    
-    /**
-     * Generate output path for recording
-     */
+
     private fun generateOutputPath(cameraType: CameraType, timestamp: Long): String {
         val cameraPrefix = when (cameraType) {
             CameraType.USB -> "usb"
@@ -493,62 +468,33 @@ class DetectionBasedRecorder(
         
         return "${android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_MOVIES)}/MergedApp/detection_${cameraPrefix}_${dateString}.mp4"
     }
-    
-    /**
-     * Get current detection statistics
-     */
+
     fun getDetectionStats(): DetectionStats {
         return DetectionStats(
             usbFramesProcessed = usbFrameCounter.get(),
             internalFramesProcessed = internalFrameCounter.get(),
             usbConsecutiveNonDetections = usbConsecutiveNonDetections.get(),
             internalConsecutiveNonDetections = internalConsecutiveNonDetections.get(),
-            isUSBRecording = getActiveUSBCamera()?.isRecording() ?: false,
-            isInternalRecording = getActiveInternalCamera()?.isRecording() ?: false
+            isUSBRecording = managedUSBCamera?.isRecording() ?: false,
+            isInternalRecording = managedInternalCamera?.isRecording() ?: false
         )
     }
     
-    /**
-     * Get the active USB camera (either injected or managed)
-     */
-    private fun getActiveUSBCamera(): ICamera? {
-        return usbCamera ?: managedUSBCamera
-    }
-    
-    /**
-     * Get the active internal camera (either injected or managed)
-     */
-    private fun getActiveInternalCamera(): ICamera? {
-        return internalCamera ?: managedInternalCamera
-    }
-    
-    /**
-     * Check if USB camera is available
-     */
+
     fun isUSBCameraAvailable(): Boolean {
-        return getActiveUSBCamera()?.isAvailable() == true
+        return managedUSBCamera?.isAvailable() == true
     }
-    
-    /**
-     * Check if internal camera is available
-     */
+
     fun isInternalCameraAvailable(): Boolean {
-        return getActiveInternalCamera()?.isAvailable() == true
+        return managedInternalCamera?.isAvailable() == true
     }
     
     // CameraStateListener implementation for managed cameras
     override fun onCameraOpened() {
         Log.d(TAG, logFormat("onCameraOpened", "Managed camera opened successfully"))
-        recordingListener?.let { listener ->
-            // Determine which camera opened
-            if (managedUSBCamera?.isAvailable() == true) {
-                // USB camera is ready, can start monitoring
-
-                if (isInitialized.get()) {
-                    startMonitoring()
-                }
-            }
-        }
+        // Detection callbacks are already set in initializeUSBCamera/initializeInternalCamera
+        // Just notify that camera is ready
+        Log.d(TAG, logFormat("onCameraOpened", "Camera is ready and detection callbacks are active"))
     }
     
     override fun onCameraClosed() {
@@ -567,9 +513,8 @@ class DetectionBasedRecorder(
     }
 }
 
-/**
- * Data class for detection statistics
- */
+
+// TODO: Should not be defined here
 data class DetectionStats(
     val usbFramesProcessed: Long,
     val internalFramesProcessed: Long,
