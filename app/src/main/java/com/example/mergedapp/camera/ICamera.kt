@@ -117,7 +117,7 @@ interface DetectionFrameCallback {
      * @param rotation Image rotation in degrees (0, 90, 180, 270)
      * @param timestamp Frame timestamp in milliseconds
      */
-    fun onDetectionFrameAvailable(bitmap: Bitmap, rotation: Int, timestamp: Long)
+    fun onDetectionFrameAvailable(bitmap: Bitmap, rotation: Int, timestamp: Long, source: CameraType)
 }
 
 /**

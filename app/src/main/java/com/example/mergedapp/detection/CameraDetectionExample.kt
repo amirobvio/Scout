@@ -3,6 +3,7 @@ package com.example.mergedapp.detection
 import android.content.Context
 import android.graphics.Bitmap
 import android.util.Log
+import com.example.mergedapp.camera.CameraType
 import com.example.mergedapp.detection.DetectionModule
 import com.example.mergedapp.detection.DetectionUtils
 import org.tensorflow.lite.examples.objectdetection.detectors.ObjectDetection
@@ -51,7 +52,8 @@ class CameraDetectionExample(
             Log.d(TAG, "Processing frame $currentFrame for detection")
             
             // This returns immediately - processing happens asynchronously
-            detectionModule.processFrameAsync(bitmap, rotation)
+            // For this example, assume USB camera type
+            detectionModule.processFrameAsync(bitmap, rotation, CameraType.USB)
         }
     }
     
@@ -78,7 +80,8 @@ class CameraDetectionExample(
         results: List<ObjectDetection>,
         inferenceTime: Long,
         imageWidth: Int,
-        imageHeight: Int
+        imageHeight: Int,
+        cameraType: CameraType
     ) {
         Log.d(TAG, "Detection completed in ${inferenceTime}ms: ${DetectionUtils.formatDetectionResults(results)}")
         
@@ -101,8 +104,8 @@ class CameraDetectionExample(
         }
     }
     
-    override fun onDetectionError(error: String) {
-        Log.e(TAG, "Detection error: $error")
+    override fun onDetectionError(error: String, cameraType: CameraType) {
+        Log.e(TAG, "Detection error from $cameraType: $error")
         // Handle detection errors (retry, fallback, notify user, etc.)
     }
     

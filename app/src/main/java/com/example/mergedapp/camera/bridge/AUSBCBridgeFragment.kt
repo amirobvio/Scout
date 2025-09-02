@@ -3,6 +3,8 @@ package com.example.mergedapp.camera.bridge
 import android.graphics.Bitmap
 import android.hardware.usb.UsbDevice
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import android.view.*       
 import android.widget.FrameLayout
@@ -14,6 +16,7 @@ import com.jiangdg.ausbc.render.env.RotateType
 import com.jiangdg.ausbc.widget.AspectRatioTextureView
 import com.jiangdg.ausbc.widget.IAspectRatio
 import com.example.mergedapp.camera.CameraConfig
+import com.example.mergedapp.camera.CameraType
 import com.example.mergedapp.camera.DetectionFrameCallback
 
 /**
@@ -58,6 +61,7 @@ internal class AUSBCBridgeFragment : CameraFragment() {
         fun onCameraClosed() 
         fun onCameraError(error: String)
         fun onFrameAvailable(data: ByteArray, width: Int, height: Int) // TODO: Why ByteArray ? is this efficient ?
+        fun onDetectionFrameAvailable(bitmap: Bitmap, rotation: Int, timestamp: Long, source: CameraType)
         fun onRecordingStarted(path: String)
         fun onRecordingStopped(path: String)
         fun onRecordingError(error: String)
@@ -196,6 +200,16 @@ internal class AUSBCBridgeFragment : CameraFragment() {
                     // Try manual camera opening as last resort
                     Log.d(TAG, "AUSBCBridgeFragment.initView:   🔧 Attempting manual camera opening...")
                     openCamera(previewSurface)
+                    
+                    // Initialize camera callbacks after opening
+                    Handler(Looper.getMainLooper()).postDelayed({
+                        try {
+                            Log.d(TAG, "AUSBCBridgeFragment.initView: Setting up camera callbacks after opening")
+                            initializeCameraForDevice()
+                        } catch (e: Exception) {
+                            Log.e(TAG, "AUSBCBridgeFragment.initView: Error setting up callbacks", e)
+                        }
+                    }, 1000) // Give camera time to fully open
                 }
                 
             } catch (e: Exception) {
@@ -207,16 +221,30 @@ internal class AUSBCBridgeFragment : CameraFragment() {
     
     /**
      * Initialize camera for our specific USB device
+     * NOTE: This is called early, before camera is actually opened
      */
     private fun initializeCameraForDevice() {
+        Log.d(TAG, "🔧 AUSBCBridgeFragment.initializeCameraForDevice: ENTRY - Initial setup")
+        // Note: We don't set up preview callbacks here anymore
+        // They are set up in setupPreviewCallbackAfterCameraOpen() after camera is opened
+    }
+    
+    /**
+     * Set up preview callbacks AFTER camera has been opened
+     * This ensures the callbacks are properly registered with the AUSBC library
+     */
+    private fun setupPreviewCallbackAfterCameraOpen() {
+        Log.d(TAG, "🎯 AUSBCBridgeFragment.setupPreviewCallbackAfterCameraOpen: Setting up preview callbacks post-camera-open")
+        
         try {
-            // Set up preview data callback if frame callback or detection frames are enabled
+            // Check if we need preview callbacks
             if (cameraConfig.enableFrameCallback || cameraConfig.enableDetectionFrames) {
-                addPreviewDataCallBack(
-                    
-                object : IPreviewDataCallBack {
-
+                Log.d(TAG, "AUSBCBridgeFragment.setupPreviewCallbackAfterCameraOpen: Registering preview callback - frameCallback=${cameraConfig.enableFrameCallback}, detectionFrames=${cameraConfig.enableDetectionFrames}")
+                
+                val previewCallback = object : IPreviewDataCallBack {
                     override fun onPreviewData(data: ByteArray?, width: Int, height: Int, format: IPreviewDataCallBack.DataFormat) {
+                        Log.v(TAG, "📸 AUSBCBridgeFragment.onPreviewData: FRAME_RECEIVED - ${width}x${height}, format=$format, dataSize=${data?.size ?: 0}")
+                        
                         if (data != null) {
                             // Handle legacy frame callback
                             if (cameraConfig.enableFrameCallback) {
@@ -225,21 +253,29 @@ internal class AUSBCBridgeFragment : CameraFragment() {
                             
                             // Handle optimized detection frames
                             if (cameraConfig.enableDetectionFrames) {
+                                Log.v(TAG, "AUSBCBridgeFragment.onPreviewFrame: Processing detection frame ${width}x${height}, format=$format")
                                 processDetectionFrame(data, width, height, format)
                             }
                         }
                     }
-
                 }
                 
-                )
+                // Register the callback with AUSBC
+                addPreviewDataCallBack(previewCallback)
+                
+                Log.d(TAG, "AUSBCBridgeFragment.setupPreviewCallbackAfterCameraOpen: ✅ Preview callback registered successfully")
+                
+                // Verify camera state
+                val camera = getCurrentCamera()
+                Log.d(TAG, "AUSBCBridgeFragment.setupPreviewCallbackAfterCameraOpen: Camera check - isOpened: ${camera?.isCameraOpened()}, device: ${camera?.getUsbDevice()?.deviceName}")
+                
+            } else {
+                Log.d(TAG, "AUSBCBridgeFragment.setupPreviewCallbackAfterCameraOpen: No preview callbacks needed")
             }
             
-            Log.d(TAG, "AUSBCBridgeFragment.initializeCameraForDevice: Preview data callback set up")
-            
         } catch (e: Exception) {
-            Log.e(TAG, "AUSBCBridgeFragment.initializeCameraForDevice: Failed to initialize camera", e)
-            bridgeCallback?.onCameraError("Failed to initialize: ${e.message}")
+            Log.e(TAG, "AUSBCBridgeFragment.setupPreviewCallbackAfterCameraOpen: Failed to set up preview callbacks", e)
+            bridgeCallback?.onCameraError("Failed to set up preview callbacks: ${e.message}")
         }
     }
     
@@ -252,6 +288,11 @@ internal class AUSBCBridgeFragment : CameraFragment() {
         when (code) {
             ICameraStateCallBack.State.OPENED -> {
                 Log.i(TAG, "AUSBCBridgeFragment.handleCameraState: AUSBC camera opened successfully")
+                
+                // CRITICAL: Register preview callback AFTER camera is opened
+                Log.d(TAG, "AUSBCBridgeFragment.handleCameraState: 🔄 Registering preview callback after camera open...")
+                setupPreviewCallbackAfterCameraOpen()
+                
                 bridgeCallback?.onCameraOpened()
             }
             ICameraStateCallBack.State.CLOSED -> {
@@ -301,7 +342,9 @@ internal class AUSBCBridgeFragment : CameraFragment() {
     override fun getCameraRequest(): CameraRequest {
         Log.d(TAG, "AUSBCBridgeFragment.getCameraRequest: AUSBC requesting camera config")
         
-        return CameraRequest.Builder()
+        // IMPORTANT: When using OpenGL render mode with raw preview data,
+        // the AUSBC library will deliver frames through the IPreviewDataCallBack
+        val request = CameraRequest.Builder()
             .setPreviewWidth(cameraConfig.width)
             .setPreviewHeight(cameraConfig.height)
             .setRenderMode(CameraRequest.RenderMode.OPENGL)
@@ -310,8 +353,11 @@ internal class AUSBCBridgeFragment : CameraFragment() {
             .setPreviewFormat(CameraRequest.PreviewFormat.FORMAT_MJPEG)
             .setAspectRatioShow(true)
             .setCaptureRawImage(false) // TODO: Check the source code of ausbc to understand what this does
-            .setRawPreviewData(cameraConfig.enableFrameCallback)
+            .setRawPreviewData(true) // CRITICAL: Must be true to receive preview frames
             .create()
+            
+        Log.d(TAG, "AUSBCBridgeFragment.getCameraRequest: Created request - renderMode=OPENGL, rawPreviewData=true, format=MJPEG, size=${cameraConfig.width}x${cameraConfig.height}")
+        return request
     }
     
     /**
@@ -461,6 +507,8 @@ internal class AUSBCBridgeFragment : CameraFragment() {
      */
     private fun processDetectionFrame(data: ByteArray, width: Int, height: Int, format: IPreviewDataCallBack.DataFormat) {
         try {
+            Log.v(TAG, "AUSBCBridgeFragment.processDetectionFrame: Converting frame ${width}x${height}, format=$format, dataSize=${data.size}")
+            
             val bitmap = when (format) {
                 IPreviewDataCallBack.DataFormat.RGBA -> {
                     // Efficient RGBA to Bitmap conversion
@@ -474,15 +522,19 @@ internal class AUSBCBridgeFragment : CameraFragment() {
             
             if (bitmap != null) {
                 val timestamp = System.currentTimeMillis()
-                detectionFrameCallback?.onDetectionFrameAvailable(
+                Log.v(TAG, "AUSBCBridgeFragment.processDetectionFrame: Bitmap created successfully, calling bridge callback")
+                bridgeCallback?.onDetectionFrameAvailable(
                     bitmap = bitmap,
                     rotation = 0, // USB cameras typically don't need rotation
-                    timestamp = timestamp
+                    timestamp = timestamp,
+                    source = CameraType.USB
                 )
+            } else {
+                Log.w(TAG, "AUSBCBridgeFragment.processDetectionFrame: Failed to create bitmap from frame data")
             }
             
         } catch (e: Exception) {
-            Log.e(TAG, "Error processing detection frame", e)
+            Log.e(TAG, "AUSBCBridgeFragment.processDetectionFrame: Error processing detection frame: ${e.message}", e)
         }
     }
     
@@ -546,4 +598,6 @@ internal class AUSBCBridgeFragment : CameraFragment() {
         Log.d(TAG, "AUSBCBridgeFragment.clear: 🧹 AUSBC clear called")
         super.clear()
     }
+    
+
 }

@@ -1,6 +1,7 @@
 package com.example.mergedapp.camera
 
 import android.content.Context
+import android.graphics.Bitmap
 import android.hardware.usb.UsbDevice
 import android.util.Log
 import androidx.appcompat.app.AppCompatActivity
@@ -107,7 +108,7 @@ class USBCameraImpl(
     }
 
     override fun startRecording(outputPath: String, callback: RecordingCallback) {
-        Log.d(TAG, "Starting recording to: $outputPath")
+
         
         if (bridgeFragment == null) {
             callback.onRecordingError("Camera not initialized")
@@ -174,10 +175,11 @@ class USBCameraImpl(
     }
     
     override fun setDetectionFrameCallback(callback: DetectionFrameCallback?) {
+        Log.d(TAG, "🔗 USBCameraImpl.setDetectionFrameCallback: SETTING_CALLBACK - callback=${callback != null}")
         this.detectionFrameCallback = callback
         // Pass to bridge fragment if it exists
         bridgeFragment?.setDetectionFrameCallback(callback)
-        Log.d(TAG, "Detection frame callback set: ${callback != null}")
+        Log.d(TAG, "✅ USBCameraImpl.setDetectionFrameCallback: CALLBACK_SET - Bridge notified")
     }
     
     /**
@@ -221,6 +223,14 @@ class USBCameraImpl(
         )
         
         frameCallback?.onFrameAvailable(cameraFrame)
+    }
+
+    override fun onDetectionFrameAvailable(bitmap: Bitmap, rotation: Int, timestamp: Long, source: CameraType) {
+        Log.d(TAG, "📥 USBCameraImpl.onDetectionFrameAvailable: FRAME_RECEIVED - ${bitmap.width}x${bitmap.height} from bridge")
+        Log.d(TAG, "📤 USBCameraImpl.onDetectionFrameAvailable: FORWARDING_TO_RECORDER - callback=${detectionFrameCallback != null}")
+        // Forward detection frame to the stored detection callback
+        detectionFrameCallback?.onDetectionFrameAvailable(bitmap, rotation, timestamp, source)
+        Log.d(TAG, "✅ USBCameraImpl.onDetectionFrameAvailable: CALLBACK_SENT - Frame forwarded to DetectionBasedRecorder")
     }
 
     override fun onRecordingStarted(path: String) {

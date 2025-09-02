@@ -30,17 +30,24 @@
         android:theme="@style/Theme.MergedApp"
         android:requestLegacyExternalStorage="true">
         
-        <!-- Main launcher activity -->
+        <!-- Main launcher activity - Detection Based Recording Test -->
         <activity
-            android:name=".MainActivity"
+            android:name=".test.DetectionBasedRecordingTestActivity"
             android:exported="true"
-            android:label="@string/app_name"
+            android:label="Detection Recording Test"
             android:theme="@style/Theme.MergedApp">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        
+        <!-- Original MainActivity (accessible but not launcher) -->
+        <activity
+            android:name=".MainActivity"
+            android:exported="false"
+            android:label="@string/app_name"
+            android:theme="@style/Theme.MergedApp" />
         
         <!-- USB Camera Test Activity -->
         <activity

@@ -350,7 +350,8 @@ class InternalCameraImpl(
                 detectionFrameCallback?.onDetectionFrameAvailable(
                     bitmap = detectionBitmapBuffer,
                     rotation = rotation,
-                    timestamp = timestamp
+                    timestamp = timestamp,
+                    source = CameraType.INTERNAL
                 )
             }
             

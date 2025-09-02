@@ -6,6 +6,7 @@ import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.util.Log
+import com.example.mergedapp.camera.CameraType
 import org.tensorflow.lite.examples.objectdetection.detectors.ObjectDetection
 import org.tensorflow.lite.examples.objectdetection.detectors.ObjectDetector
 import org.tensorflow.lite.examples.objectdetection.detectors.TaskVisionDetector
@@ -78,19 +79,22 @@ class DetectionModule(
          * @param inferenceTime Time taken for detection in milliseconds
          * @param imageWidth Width of the processed image
          * @param imageHeight Height of the processed image
+         * @param cameraType The camera type that this detection result belongs to
          */
         fun onDetectionResults(
             results: List<ObjectDetection>,
             inferenceTime: Long,
             imageWidth: Int,
-            imageHeight: Int
+            imageHeight: Int,
+            cameraType: CameraType
         )
         
         /**
          * Called when detection processing encounters an error
          * @param error Error message
+         * @param cameraType The camera type where the error occurred
          */
-        fun onDetectionError(error: String)
+        fun onDetectionError(error: String, cameraType: CameraType)
     }
     
     /**
@@ -110,7 +114,8 @@ class DetectionModule(
             
         } catch (e: Exception) {
             Log.e(TAG, "Failed to initialize DetectionModule", e)
-            detectionListener?.onDetectionError("Failed to initialize detection: ${e.message}")
+            // Note: We don't have camera context during initialization, so we'll report this as a general error
+            // In practice, this error would affect both cameras if it occurs
         }
     }
     
@@ -173,8 +178,9 @@ class DetectionModule(
      * 
      * @param bitmap The frame to process as a Bitmap
      * @param rotation Image rotation in degrees (0, 90, 180, 270)
+     * @param cameraType The camera type this frame belongs to
      */
-    fun processFrameAsync(bitmap: Bitmap, rotation: Int = 0) {
+    fun processFrameAsync(bitmap: Bitmap, rotation: Int = 0, cameraType: CameraType) {
         if (!isInitialized.get()) {
             Log.w(TAG, "DetectionModule not initialized. Call initialize() first.")
             return
@@ -183,11 +189,11 @@ class DetectionModule(
         // Submit frame processing to background thread - returns immediately
         detectionExecutor.submit {
             try {
-                performDetection(bitmap, rotation)
+                performDetection(bitmap, rotation, cameraType)
             } catch (e: Exception) {
-                Log.e(TAG, "Error processing frame", e)
+                Log.e(TAG, "Error processing frame from $cameraType camera", e)
                 mainHandler.post {
-                    detectionListener?.onDetectionError("Frame processing error: ${e.message}")
+                    detectionListener?.onDetectionError("Frame processing error: ${e.message}", cameraType)
                 }
             }
         }
@@ -199,9 +205,10 @@ class DetectionModule(
      * 
      * @param bitmap The frame to process as a Bitmap
      * @param rotation Image rotation in degrees (0, 90, 180, 270)
+     * @param cameraType The camera type this frame belongs to
      * @return DetectionResults containing all detection information
      */
-    fun processFrameSync(bitmap: Bitmap, rotation: Int = 0): DetectionResults? {
+    fun processFrameSync(bitmap: Bitmap, rotation: Int = 0, cameraType: CameraType): DetectionResults? {
         if (!isInitialized.get()) {
             Log.w(TAG, "DetectionModule not initialized. Call initialize() first.")
             return null
@@ -217,7 +224,8 @@ class DetectionModule(
                     results: List<ObjectDetection>,
                     inferenceTime: Long,
                     imageWidth: Int,
-                    imageHeight: Int
+                    imageHeight: Int,
+                    cameraType: CameraType
                 ) {
                     synchronized(syncLock) {
                         detectionResults = DetectionResults(
@@ -226,23 +234,23 @@ class DetectionModule(
                             inferenceTime = inferenceTime,
                             imageWidth = imageWidth,
                             imageHeight = imageHeight,
+                            cameraType = cameraType,
                             timestamp = System.currentTimeMillis()
                         )
                         syncLock.notify()
                     }
                 }
                 
-                override fun onDetectionError(error: String) {
+                override fun onDetectionError(error: String, cameraType: CameraType) {
                     synchronized(syncLock) {
-                        Log.e(TAG, "Sync detection error: $error")
+                        Log.e(TAG, "Sync detection error from $cameraType camera: $error")
                         syncLock.notify()
                     }
                 }
             }
             
             // Perform detection with temporary listener
-            val originalListener = detectionListener
-            performDetectionWithListener(bitmap, rotation, tempListener)
+            performDetectionWithListener(bitmap, rotation, cameraType, tempListener)
             
             // Wait for result
             synchronized(syncLock) {
@@ -260,8 +268,8 @@ class DetectionModule(
     /**
      * Core detection logic that processes the bitmap and calls listener
      */
-    private fun performDetection(bitmap: Bitmap, rotation: Int) {
-        performDetectionWithListener(bitmap, rotation, detectionListener)
+    private fun performDetection(bitmap: Bitmap, rotation: Int, cameraType: CameraType) {
+        performDetectionWithListener(bitmap, rotation, cameraType, detectionListener)
     }
     
     /**
@@ -270,6 +278,7 @@ class DetectionModule(
     private fun performDetectionWithListener(
         bitmap: Bitmap, 
         rotation: Int, 
+        cameraType: CameraType,
         listener: DetectionListener?
     ) {
         if (objectDetector == null) {
@@ -295,7 +304,7 @@ class DetectionModule(
 
             // Process results
             if (results != null) {
-                Log.d(TAG, "Detection completed: ${results.detections.size} objects found in ${inferenceTime}ms")
+                Log.d(TAG, "Detection completed: ${results.detections.size} objects found in ${inferenceTime}ms for $cameraType camera")
                 
                 // Call listener on main thread
                 mainHandler.post {
@@ -303,17 +312,18 @@ class DetectionModule(
                         results = results.detections,
                         inferenceTime = inferenceTime,
                         imageWidth = results.image.width,
-                        imageHeight = results.image.height
+                        imageHeight = results.image.height,
+                        cameraType = cameraType
                     )
                 }
             } else {
-                Log.w(TAG, "Detection returned null results")
+                Log.w(TAG, "Detection returned null results for $cameraType camera")
             }
             
         } catch (e: Exception) {
-            Log.e(TAG, "Error during detection", e)
+            Log.e(TAG, "Error during detection for $cameraType camera", e)
             mainHandler.post {
-                listener?.onDetectionError("Detection error: ${e.message}")
+                listener?.onDetectionError("Detection error: ${e.message}", cameraType)
             }
         }
     }
@@ -404,5 +414,6 @@ data class DetectionResults(
     val inferenceTime: Long,
     val imageWidth: Int,
     val imageHeight: Int,
+    val cameraType: CameraType,
     val timestamp: Long
 )
