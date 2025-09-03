@@ -240,6 +240,20 @@ class USBCameraImpl(
         Log.d(TAG, "USBCameraImpl.onDetectionFrameAvailable: ----------------------------------- Total method duration ${totalDuration}ms")
         Log.d(TAG, "✅ USBCameraImpl.onDetectionFrameAvailable: CALLBACK_SENT - Frame forwarded to DetectionBasedRecorder")
     }
+    
+    override fun onRawDetectionFrameAvailable(data: ByteArray, width: Int, height: Int, format: FrameFormat, rotation: Int, timestamp: Long, source: CameraType) {
+        val methodStartTime = System.currentTimeMillis()
+        Log.d(TAG, "📥 USBCameraImpl.onRawDetectionFrameAvailable: RAW_FRAME_RECEIVED - ${width}x${height}, format=$format, size=${data.size}")
+        
+        val callbackStartTime = System.currentTimeMillis()
+        detectionFrameCallback?.onRawFrameAvailable(data, width, height, format, rotation, timestamp, source)
+        val callbackDuration = System.currentTimeMillis() - callbackStartTime
+        Log.d(TAG, "USBCameraImpl.onRawDetectionFrameAvailable: ----------------------------------- Raw callback forwarding took ${callbackDuration}ms")
+        
+        val totalDuration = System.currentTimeMillis() - methodStartTime
+        Log.d(TAG, "USBCameraImpl.onRawDetectionFrameAvailable: ----------------------------------- Total method duration ${totalDuration}ms")
+        Log.d(TAG, "✅ USBCameraImpl.onRawDetectionFrameAvailable: RAW_CALLBACK_SENT - Raw frame forwarded to DetectionBasedRecorder")
+    }
 
     override fun onRecordingStarted(path: String) {
         isCurrentlyRecording = true

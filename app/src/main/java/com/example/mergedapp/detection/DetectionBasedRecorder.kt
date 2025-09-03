@@ -8,6 +8,7 @@ import android.os.Looper
 import android.util.Log
 import androidx.appcompat.app.AppCompatActivity
 import com.example.mergedapp.camera.*
+import com.example.mergedapp.camera.FrameConversionUtils
 import org.tensorflow.lite.examples.objectdetection.config.DetectionConfig
 import org.tensorflow.lite.examples.objectdetection.detectors.DetectionObject
 import java.io.File
@@ -270,15 +271,46 @@ class DetectionBasedRecorder(
     
 
     override fun onDetectionFrameAvailable(bitmap: Bitmap, rotation: Int, timestamp: Long, source: CameraType) {
+        // Legacy method - kept for backward compatibility
+        // New pipeline uses onRawFrameAvailable() for better memory management
         val methodStartTime = System.currentTimeMillis()
-        Log.d(TAG, logFormat("onDetectionFrameAvailable", "🎯 FRAME_RECEIVED - ${source} camera: ${bitmap.width}x${bitmap.height}"))
+        Log.d(TAG, logFormat("onDetectionFrameAvailable", "🎯 LEGACY_FRAME_RECEIVED - ${source} camera: ${bitmap.width}x${bitmap.height}"))
         
         if (!isInitialized.get()) {
             Log.w(TAG, logFormat("onDetectionFrameAvailable", "⚠️ FRAME_DROPPED - Recorder not initialized"))
             return
         }
 
-        val intervalCheckStartTime = System.currentTimeMillis()
+        // Direct processing for legacy bitmap frames (no frame counting needed)
+        Log.d(TAG, logFormat("onDetectionFrameAvailable", "🔄 PROCESSING_LEGACY_FRAME from $source camera"))
+        
+        val submissionStartTime = System.currentTimeMillis()
+        detectionExecutor.submit {
+            try {
+                processDetectionFrame(bitmap, rotation, source, timestamp)
+            } catch (e: Exception) {
+                Log.e(TAG, logFormat("onDetectionFrameAvailable", "💥 LEGACY_FRAME_PROCESSING_ERROR - ${e.message}"), e)
+            }
+        }
+        val submissionDuration = System.currentTimeMillis() - submissionStartTime
+        Log.d(TAG, logFormat("onDetectionFrameAvailable", "----------------------------------- Legacy executor submission took ${submissionDuration}ms"))
+        
+        val totalMethodDuration = System.currentTimeMillis() - methodStartTime
+        Log.d(TAG, logFormat("onDetectionFrameAvailable", "----------------------------------- Legacy total method duration ${totalMethodDuration}ms"))
+    }
+    
+
+
+    override fun onRawFrameAvailable(data: ByteArray, width: Int, height: Int, format: FrameFormat, rotation: Int, timestamp: Long, source: CameraType) {
+        val methodStartTime = System.currentTimeMillis()
+        Log.d(TAG, logFormat("onRawFrameAvailable", "🎯 RAW_FRAME_RECEIVED - ${source} camera: ${width}x${height}, format=$format, size=${data.size}"))
+        
+        if (!isInitialized.get()) {
+            Log.w(TAG, logFormat("onRawFrameAvailable", "⚠️ RAW_FRAME_DROPPED - Recorder not initialized"))
+            return
+        }
+
+
         val shouldProcess = when (source) {
             CameraType.USB -> {
                 val currentFrame = usbFrameCounter.incrementAndGet()
@@ -289,33 +321,40 @@ class DetectionBasedRecorder(
                 currentFrame % DetectionConfig.DETECTION_FRAME_INTERVAL == 0L
             }
         }
-        val intervalCheckDuration = System.currentTimeMillis() - intervalCheckStartTime
-        if (source == CameraType.USB) {
-            Log.d(TAG, logFormat("onDetectionFrameAvailable", "----------------------------------- USB interval check took ${intervalCheckDuration}ms"))
-        }
+
         
         if (shouldProcess) {
-            Log.d(TAG, logFormat("onDetectionFrameAvailable", "🔄 PROCESSING_FRAME - Frame #${when(source) { CameraType.USB -> usbFrameCounter.get(); CameraType.INTERNAL -> internalFrameCounter.get() }} from $source camera"))
+            Log.d(TAG, logFormat("onRawFrameAvailable", "🔄 PROCESSING_RAW_FRAME - Frame #${when(source) { CameraType.USB -> usbFrameCounter.get(); CameraType.INTERNAL -> internalFrameCounter.get() }} from $source camera"))
             
-            val submissionStartTime = System.currentTimeMillis()
-            detectionExecutor.submit {
-                try {
-                    processDetectionFrame(bitmap, rotation, source, timestamp)
-                } catch (e: Exception) {
-                    Log.e(TAG, logFormat("onDetectionFrameAvailable", "💥 FRAME_PROCESSING_ERROR - ${e.message}"), e)
+            // Convert raw data to bitmap only when processing is needed
+            val conversionStartTime = System.currentTimeMillis()
+            val bitmap = FrameConversionUtils.convertToBitmap(data, width, height, format)
+            val conversionDuration = System.currentTimeMillis() - conversionStartTime
+            Log.d(TAG, logFormat("onRawFrameAvailable", "----------------------------------- Frame conversion took ${conversionDuration}ms"))
+            
+            if (bitmap != null) {
+                val submissionStartTime = System.currentTimeMillis()
+                detectionExecutor.submit {
+                    try {
+                        processDetectionFrame(bitmap, rotation, source, timestamp)
+                    } catch (e: Exception) {
+                        Log.e(TAG, logFormat("onRawFrameAvailable", "💥 RAW_FRAME_PROCESSING_ERROR - ${e.message}"), e)
+                    }
                 }
-            }
-            val submissionDuration = System.currentTimeMillis() - submissionStartTime
-            if (source == CameraType.USB) {
-                Log.d(TAG, logFormat("onDetectionFrameAvailable", "----------------------------------- USB executor submission took ${submissionDuration}ms"))
+                val submissionDuration = System.currentTimeMillis() - submissionStartTime
+                if (source == CameraType.USB) {
+                    Log.d(TAG, logFormat("onRawFrameAvailable", "----------------------------------- USB executor submission took ${submissionDuration}ms"))
+                }
+            } else {
+                Log.e(TAG, logFormat("onRawFrameAvailable", "❌ CONVERSION_FAILED - Unable to convert raw frame to bitmap"))
             }
         } else {
-            Log.v(TAG, logFormat("onDetectionFrameAvailable", "⏭️ FRAME_SKIPPED - Frame #${when(source) { CameraType.USB -> usbFrameCounter.get(); CameraType.INTERNAL -> internalFrameCounter.get() }} from $source camera (interval)"))
+            Log.v(TAG, logFormat("onRawFrameAvailable", "⏭️ RAW_FRAME_SKIPPED - Frame #${when(source) { CameraType.USB -> usbFrameCounter.get(); CameraType.INTERNAL -> internalFrameCounter.get() }} from $source camera (interval)"))
         }
         
         val totalMethodDuration = System.currentTimeMillis() - methodStartTime
         if (source == CameraType.USB) {
-            Log.d(TAG, logFormat("onDetectionFrameAvailable", "----------------------------------- USB total method duration ${totalMethodDuration}ms"))
+            Log.d(TAG, logFormat("onRawFrameAvailable", "----------------------------------- USB raw frame total duration ${totalMethodDuration}ms"))
         }
     }
 

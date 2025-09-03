@@ -280,9 +280,7 @@ class InternalCameraImpl(
         }
     }
     
-    /**
-     * Process frame for callbacks (legacy CameraFrame format)
-     */
+    // TODO: don't use the two callbacks process frame and process detection frame
     private fun processFrame(imageProxy: ImageProxy) {
         try {
             // Initialize bitmap buffer if needed
@@ -322,10 +320,7 @@ class InternalCameraImpl(
         }
     }
     
-    /**
-     * Process frame for detection (optimized detection_test pattern)
-     * This uses the same efficient approach as detection_test project
-     */
+
     private fun processDetectionFrame(imageProxy: ImageProxy) {
         try {
             // Initialize detection bitmap buffer if needed (same as detection_test)
@@ -346,9 +341,20 @@ class InternalCameraImpl(
                 val rotation = proxy.imageInfo.rotationDegrees
                 val timestamp = System.currentTimeMillis()
                 
-                // Call detection frame callback with ready-to-use Bitmap
-                detectionFrameCallback?.onDetectionFrameAvailable(
-                    bitmap = detectionBitmapBuffer,
+                // For InternalCamera, pass raw RGBA data instead of bitmap
+                // Extract raw RGBA data from the bitmap buffer
+                val rawDataBuffer = ByteArray(detectionBitmapBuffer.byteCount)
+                val byteBuffer = java.nio.ByteBuffer.allocate(detectionBitmapBuffer.byteCount)
+                detectionBitmapBuffer.copyPixelsToBuffer(byteBuffer)
+                byteBuffer.rewind()
+                byteBuffer.get(rawDataBuffer)
+                
+                // Call raw frame callback to match USB camera pipeline
+                detectionFrameCallback?.onRawFrameAvailable(
+                    data = rawDataBuffer,
+                    width = proxy.width,
+                    height = proxy.height,
+                    format = FrameFormat.RGBA,
                     rotation = rotation,
                     timestamp = timestamp,
                     source = CameraType.INTERNAL

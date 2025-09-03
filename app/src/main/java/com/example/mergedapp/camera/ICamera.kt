@@ -108,7 +108,7 @@ interface FrameCallback {
 
 /**
  * Optimized callback for detection frames
- * Delivers frames directly as Bitmap for efficient detection processing
+ * Supports both raw data (for frame counting) and bitmap delivery (for processing)
  */
 interface DetectionFrameCallback {
     /**
@@ -116,8 +116,21 @@ interface DetectionFrameCallback {
      * @param bitmap Frame data as Bitmap (ready for TensorFlow Lite)
      * @param rotation Image rotation in degrees (0, 90, 180, 270)
      * @param timestamp Frame timestamp in milliseconds
+     * @param source Camera type that produced this frame
      */
     fun onDetectionFrameAvailable(bitmap: Bitmap, rotation: Int, timestamp: Long, source: CameraType)
+    
+    /**
+     * Called when raw frame data is available - allows receiver to decide whether to process
+     * @param data Raw frame data as ByteArray
+     * @param width Frame width in pixels
+     * @param height Frame height in pixels
+     * @param format Frame format (RGBA, NV21, etc.)
+     * @param rotation Image rotation in degrees (0, 90, 180, 270)
+     * @param timestamp Frame timestamp in milliseconds
+     * @param source Camera type that produced this frame
+     */
+    fun onRawFrameAvailable(data: ByteArray, width: Int, height: Int, format: FrameFormat, rotation: Int, timestamp: Long, source: CameraType)
 }
 
 /**

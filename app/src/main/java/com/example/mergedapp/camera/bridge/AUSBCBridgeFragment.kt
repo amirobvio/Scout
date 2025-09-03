@@ -18,6 +18,7 @@ import com.jiangdg.ausbc.widget.IAspectRatio
 import com.example.mergedapp.camera.CameraConfig
 import com.example.mergedapp.camera.CameraType
 import com.example.mergedapp.camera.DetectionFrameCallback
+import com.example.mergedapp.camera.FrameFormat
 
 /**
  * Internal AUSBC Bridge Fragment
@@ -62,6 +63,7 @@ internal class AUSBCBridgeFragment : CameraFragment() {
         fun onCameraError(error: String)
         fun onFrameAvailable(data: ByteArray, width: Int, height: Int) // TODO: Why ByteArray ? is this efficient ?
         fun onDetectionFrameAvailable(bitmap: Bitmap, rotation: Int, timestamp: Long, source: CameraType)
+        fun onRawDetectionFrameAvailable(data: ByteArray, width: Int, height: Int, format: FrameFormat, rotation: Int, timestamp: Long, source: CameraType)
         fun onRecordingStarted(path: String)
         fun onRecordingStopped(path: String)
         fun onRecordingError(error: String)
@@ -514,44 +516,41 @@ internal class AUSBCBridgeFragment : CameraFragment() {
     }
     
     /**
-     * Process frame for detection with optimized conversion
-     * Handles both RGBA and NV21 formats from AUSBC
+     * Process frame for detection - now passes raw data instead of converting
+     * Let the receiver decide whether to process based on frame intervals
      */
     private fun processDetectionFrame(data: ByteArray, width: Int, height: Int, format: IPreviewDataCallBack.DataFormat) {
         val methodStartTime = System.currentTimeMillis()
         try {
-            Log.v(TAG, "AUSBCBridgeFragment.processDetectionFrame: Converting frame ${width}x${height}, format=$format, dataSize=${data.size}")
+            Log.v(TAG, "AUSBCBridgeFragment.processDetectionFrame: Passing raw frame ${width}x${height}, format=$format, dataSize=${data.size}")
             
-            val conversionStartTime = System.currentTimeMillis()
-            val bitmap = when (format) {
+            // Convert AUSBC format to our FrameFormat enum
+            val frameFormat = when (format) {
                 IPreviewDataCallBack.DataFormat.RGBA -> {
-                    Log.d(TAG, "AUSBCBridgeFragment.processDetectionFrame: ✅ RGBA format detected - using optimized conversion")
-                    convertRGBAToBitmap(data, width, height)
+                    Log.v(TAG, "AUSBCBridgeFragment.processDetectionFrame: ✅ RGBA format detected")
+                    FrameFormat.RGBA
                 }
                 IPreviewDataCallBack.DataFormat.NV21 -> {
-                    // Convert NV21 (YUV) to RGB Bitmap
-                    convertNV21ToBitmap(data, width, height)
+                    Log.v(TAG, "AUSBCBridgeFragment.processDetectionFrame: NV21 format detected")
+                    FrameFormat.NV21
                 }
             }
-            val conversionDuration = System.currentTimeMillis() - conversionStartTime
-            Log.d(TAG, "AUSBCBridgeFragment.processDetectionFrame: ----------------------------------- Bitmap conversion took ${conversionDuration}ms")
             
-            if (bitmap != null) {
-                val timestamp = System.currentTimeMillis()
-                Log.v(TAG, "AUSBCBridgeFragment.processDetectionFrame: Bitmap created successfully, calling bridge callback")
-                
-                val callbackStartTime = System.currentTimeMillis()
-                bridgeCallback?.onDetectionFrameAvailable(
-                    bitmap = bitmap,
-                    rotation = 0, // USB cameras typically don't need rotation
-                    timestamp = timestamp,
-                    source = CameraType.USB
-                )
-                val callbackDuration = System.currentTimeMillis() - callbackStartTime
-                Log.d(TAG, "AUSBCBridgeFragment.processDetectionFrame: ----------------------------------- Bridge callback took ${callbackDuration}ms")
-            } else {
-                Log.w(TAG, "AUSBCBridgeFragment.processDetectionFrame: Failed to create bitmap from frame data")
-            }
+            val timestamp = System.currentTimeMillis()
+            
+            // Pass raw data to callback - let receiver decide whether to process
+            val callbackStartTime = System.currentTimeMillis()
+            bridgeCallback?.onRawDetectionFrameAvailable(
+                data = data,
+                width = width,
+                height = height,
+                format = frameFormat,
+                rotation = 0, // USB cameras typically don't need rotation
+                timestamp = timestamp,
+                source = CameraType.USB
+            )
+            val callbackDuration = System.currentTimeMillis() - callbackStartTime
+            Log.d(TAG, "AUSBCBridgeFragment.processDetectionFrame: ----------------------------------- Raw frame callback took ${callbackDuration}ms")
             
         } catch (e: Exception) {
             Log.e(TAG, "AUSBCBridgeFragment.processDetectionFrame: Error processing detection frame: ${e.message}", e)
@@ -561,9 +560,7 @@ internal class AUSBCBridgeFragment : CameraFragment() {
         Log.d(TAG, "AUSBCBridgeFragment.processDetectionFrame: ----------------------------------- Total method duration ${totalMethodDuration}ms")
     }
     
-    /**
-     * Convert RGBA byte array to Bitmap (efficient for detection)
-     */
+    // TODO: we probably need not do the memory allocation every time
     private fun convertRGBAToBitmap(data: ByteArray, width: Int, height: Int): Bitmap? {
         val startTime = System.currentTimeMillis()
         return try {
