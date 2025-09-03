@@ -46,7 +46,7 @@ class DetectionModule(
         const val DELEGATE_GPU = 1
         const val DELEGATE_NNAPI = 2
         
-        // Detection models
+        // Detection modelsi
         const val MODEL_MOBILENETV1 = 0
         const val MODEL_EFFICIENTDETV0 = 1
         const val MODEL_EFFICIENTDETV1 = 2

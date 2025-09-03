@@ -270,6 +270,7 @@ class DetectionBasedRecorder(
     
 
     override fun onDetectionFrameAvailable(bitmap: Bitmap, rotation: Int, timestamp: Long, source: CameraType) {
+        val methodStartTime = System.currentTimeMillis()
         Log.d(TAG, logFormat("onDetectionFrameAvailable", "🎯 FRAME_RECEIVED - ${source} camera: ${bitmap.width}x${bitmap.height}"))
         
         if (!isInitialized.get()) {
@@ -277,7 +278,7 @@ class DetectionBasedRecorder(
             return
         }
 
-
+        val intervalCheckStartTime = System.currentTimeMillis()
         val shouldProcess = when (source) {
             CameraType.USB -> {
                 val currentFrame = usbFrameCounter.incrementAndGet()
@@ -288,10 +289,15 @@ class DetectionBasedRecorder(
                 currentFrame % DetectionConfig.DETECTION_FRAME_INTERVAL == 0L
             }
         }
+        val intervalCheckDuration = System.currentTimeMillis() - intervalCheckStartTime
+        if (source == CameraType.USB) {
+            Log.d(TAG, logFormat("onDetectionFrameAvailable", "----------------------------------- USB interval check took ${intervalCheckDuration}ms"))
+        }
         
         if (shouldProcess) {
             Log.d(TAG, logFormat("onDetectionFrameAvailable", "🔄 PROCESSING_FRAME - Frame #${when(source) { CameraType.USB -> usbFrameCounter.get(); CameraType.INTERNAL -> internalFrameCounter.get() }} from $source camera"))
             
+            val submissionStartTime = System.currentTimeMillis()
             detectionExecutor.submit {
                 try {
                     processDetectionFrame(bitmap, rotation, source, timestamp)
@@ -299,15 +305,37 @@ class DetectionBasedRecorder(
                     Log.e(TAG, logFormat("onDetectionFrameAvailable", "💥 FRAME_PROCESSING_ERROR - ${e.message}"), e)
                 }
             }
+            val submissionDuration = System.currentTimeMillis() - submissionStartTime
+            if (source == CameraType.USB) {
+                Log.d(TAG, logFormat("onDetectionFrameAvailable", "----------------------------------- USB executor submission took ${submissionDuration}ms"))
+            }
         } else {
             Log.v(TAG, logFormat("onDetectionFrameAvailable", "⏭️ FRAME_SKIPPED - Frame #${when(source) { CameraType.USB -> usbFrameCounter.get(); CameraType.INTERNAL -> internalFrameCounter.get() }} from $source camera (interval)"))
+        }
+        
+        val totalMethodDuration = System.currentTimeMillis() - methodStartTime
+        if (source == CameraType.USB) {
+            Log.d(TAG, logFormat("onDetectionFrameAvailable", "----------------------------------- USB total method duration ${totalMethodDuration}ms"))
         }
     }
 
     @Suppress("UNUSED_PARAMETER")
     private fun processDetectionFrame(bitmap: Bitmap, rotation: Int, cameraType: CameraType, timestamp: Long) {
+        val methodStartTime = System.currentTimeMillis()
         Log.d(TAG, logFormat("processDetectionFrame", "🧠 SENDING_TO_DETECTION - ${cameraType} frame ${bitmap.width}x${bitmap.height} to DetectionModule"))
+        
+        val detectionModuleStartTime = System.currentTimeMillis()
         detectionModule.processFrameAsync(bitmap, rotation, cameraType)
+        val detectionModuleDuration = System.currentTimeMillis() - detectionModuleStartTime
+        
+        if (cameraType == CameraType.USB) {
+            Log.d(TAG, logFormat("processDetectionFrame", "----------------------------------- USB DetectionModule submission took ${detectionModuleDuration}ms"))
+        }
+        
+        val totalDuration = System.currentTimeMillis() - methodStartTime
+        if (cameraType == CameraType.USB) {
+            Log.d(TAG, logFormat("processDetectionFrame", "----------------------------------- USB processDetectionFrame total duration ${totalDuration}ms"))
+        }
         // Results will come back via onDetectionResults callback with camera type included
     }
     

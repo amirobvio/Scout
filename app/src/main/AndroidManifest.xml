@@ -49,26 +49,10 @@
             android:label="@string/app_name"
             android:theme="@style/Theme.MergedApp" />
         
-        <!-- USB Camera Test Activity -->
-        <activity
-            android:name=".test.USBCameraTestActivity"
-            android:exported="false"
-            android:label="USB Camera Test"
-            android:theme="@style/Theme.MergedApp"
-            android:screenOrientation="portrait" />
-            
-        <!-- Internal Camera Test Activity -->
-        <activity
-            android:name=".test.InternalCameraTestActivity"
-            android:exported="false"
-            android:label="Internal Camera Test"
-            android:theme="@style/Theme.MergedApp"
-            android:screenOrientation="portrait" />
-            
-        <!-- USB device attached intent filter -->
+        <!-- USB device attached intent filter - now points to DetectionBasedRecordingTestActivity -->
         <activity-alias 
             android:name=".UsbDeviceReceiver"
-            android:targetActivity=".test.USBCameraTestActivity"
+            android:targetActivity=".test.DetectionBasedRecordingTestActivity"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED" />

@@ -6,8 +6,7 @@ import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
-import com.example.mergedapp.test.USBCameraTestActivity
-import com.example.mergedapp.test.InternalCameraTestActivity
+import com.example.mergedapp.test.DetectionBasedRecordingTestActivity
 
 /**
  * Main launcher activity for the Merged Camera App
@@ -29,52 +28,47 @@ class MainActivity : AppCompatActivity() {
         
         // Title
         val titleText = TextView(this).apply {
-            text = "📷 Merged Camera App - Phase 1"
+            text = "📷 Merged Camera App - Phase 3"
             textSize = 20f
             setPadding(0, 0, 0, 40)
         }
         
         // Description
         val descText = TextView(this).apply {
-            text = "Phase 2: Camera Implementation Complete\n\n" +
+            text = "Phase 3: Detection-Based Recording Complete\n\n" +
                     "✅ USB Camera Interface (AUSBC)\n" +
                     "✅ Internal Camera Interface (CameraX)\n" +
                     "✅ USB Permission Management\n" +
                     "✅ Frame Callback System\n" +
                     "✅ Recording System\n" +
-                    "🎯 Ready for Detection Integration"
+                    "✅ TensorFlow Lite Object Detection\n" +
+                    "✅ Dual Camera Detection-Based Recording\n" +
+                    "🎯 Production Ready"
             textSize = 14f
             setPadding(0, 0, 0, 40)
         }
         
-        // USB Camera Test Button
-        val usbTestButton = Button(this).apply {
-            text = "🔌 Test USB Camera"
+        // Detection-Based Recording Test Button
+        val detectionTestButton = Button(this).apply {
+            text = "🎯 Start Detection-Based Recording"
             textSize = 16f
             setPadding(20, 20, 20, 20)
             setOnClickListener {
-                startActivity(Intent(this@MainActivity, USBCameraTestActivity::class.java))
-            }
-        }
-        
-        // Internal Camera Test Button
-        val internalTestButton = Button(this).apply {
-            text = "📱 Test Internal Camera"
-            textSize = 16f
-            setPadding(20, 20, 20, 20)
-            setOnClickListener {
-                startActivity(Intent(this@MainActivity, InternalCameraTestActivity::class.java))
+                startActivity(Intent(this@MainActivity, DetectionBasedRecordingTestActivity::class.java))
             }
         }
         
         // Instructions
         val instructionsText = TextView(this).apply {
             text = "\n📋 Instructions:\n" +
-                    "1. Connect a USB camera to your device\n" +
-                    "2. Tap 'Test USB Camera' button\n" +
-                    "3. Grant USB permissions when prompted\n" +
-                    "4. Test recording and frame callbacks\n\n" +
-                    "⚠️ Make sure your USB camera is UVC compatible"
+                    "1. Connect a USB camera to your device (optional)\n" +
+                    "2. Tap 'Start Detection-Based Recording' button\n" +
+                    "3. Grant camera and USB permissions when prompted\n" +
+                    "4. Place target objects (laptop) in camera view\n" +
+                    "5. Recording starts automatically when objects detected\n\n" +
+                    "🎯 Target Object: laptop\n" +
+                    "📷 Works with USB + Internal cameras simultaneously\n" +
+                    "⚠️ USB camera should be UVC compatible"
             textSize = 12f
             setPadding(0, 20, 0, 0)
         }
@@ -82,8 +76,7 @@ class MainActivity : AppCompatActivity() {
         // Add all views
         layout.addView(titleText)
         layout.addView(descText)
-        layout.addView(usbTestButton)
-        layout.addView(internalTestButton)
+        layout.addView(detectionTestButton)
         layout.addView(instructionsText)
         
         setContentView(layout)

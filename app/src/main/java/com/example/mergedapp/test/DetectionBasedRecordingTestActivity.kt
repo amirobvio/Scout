@@ -58,6 +58,13 @@ class DetectionBasedRecordingTestActivity : AppCompatActivity(),
     private var isInternalCameraInitialized = false
     private val logMessages = mutableListOf<String>()
     private val maxLogMessages = 20
+    
+    // FPS tracking
+    private var lastUsbFrameCount = 0L
+    private var lastInternalFrameCount = 0L
+    private var lastFpsUpdateTime = 0L
+    private var usbFps = 0.0
+    private var internalFps = 0.0
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -136,7 +143,7 @@ class DetectionBasedRecordingTestActivity : AppCompatActivity(),
         
         // Stats section
         statsText = TextView(this).apply {
-            text = "📊 Detection Statistics:\n\n🔌 USB Camera:\nFrames: 0 | Non-Detections: 0 | Status: ⚪ WAITING\n\n📱 Internal Camera:\nFrames: 0 | Non-Detections: 0 | Status: ⚪ WAITING"
+            text = "📊 Detection Statistics:\n\n🔌 USB Camera:\nFrames: 0 | FPS: 0.0 | Non-Detections: 0 | Status: ⚪ WAITING\n\n📱 Internal Camera:\nFrames: 0 | FPS: 0.0 | Non-Detections: 0 | Status: ⚪ WAITING"
             textSize = 14f
             setTextColor(0xFF81C784.toInt())
             setBackgroundColor(0xFF1B5E20.toInt())
@@ -273,6 +280,9 @@ class DetectionBasedRecordingTestActivity : AppCompatActivity(),
         
         val stats = detectionRecorder?.getDetectionStats()
         if (stats != null) {
+            // Calculate FPS
+            calculateFPS(stats)
+            
             runOnUiThread {
                 statsText?.text = buildString {
                     append("📊 Detection Statistics:\n\n")
@@ -280,16 +290,47 @@ class DetectionBasedRecordingTestActivity : AppCompatActivity(),
                     // USB Camera stats
                     append("🔌 USB Camera:\n")
                     append("Frames: ${stats.usbFramesProcessed} | ")
+                    append("FPS: ${String.format("%.1f", usbFps)} | ")
                     append("Non-Detections: ${stats.usbConsecutiveNonDetections} | ")
                     append("Status: ${if (stats.isUSBRecording) "🔴 RECORDING" else "⚪ WAITING"}\n\n")
                     
                     // Internal Camera stats
                     append("📱 Internal Camera:\n")
                     append("Frames: ${stats.internalFramesProcessed} | ")
+                    append("FPS: ${String.format("%.1f", internalFps)} | ")
                     append("Non-Detections: ${stats.internalConsecutiveNonDetections} | ")
                     append("Status: ${if (stats.isInternalRecording) "🔴 RECORDING" else "⚪ WAITING"}")
                 }
             }
+        }
+    }
+    
+    private fun calculateFPS(stats: DetectionStats) {
+        val currentTime = System.currentTimeMillis()
+        
+        // Initialize on first run
+        if (lastFpsUpdateTime == 0L) {
+            lastFpsUpdateTime = currentTime
+            lastUsbFrameCount = stats.usbFramesProcessed
+            lastInternalFrameCount = stats.internalFramesProcessed
+            return
+        }
+        
+        val timeDelta = currentTime - lastFpsUpdateTime
+        
+        // Only calculate FPS if at least 1 second has passed
+        if (timeDelta >= 1000) {
+            val usbFrameDelta = stats.usbFramesProcessed - lastUsbFrameCount
+            val internalFrameDelta = stats.internalFramesProcessed - lastInternalFrameCount
+            
+            // Calculate FPS (frames per second)
+            usbFps = (usbFrameDelta * 1000.0) / timeDelta
+            internalFps = (internalFrameDelta * 1000.0) / timeDelta
+            
+            // Update last values for next calculation
+            lastFpsUpdateTime = currentTime
+            lastUsbFrameCount = stats.usbFramesProcessed
+            lastInternalFrameCount = stats.internalFramesProcessed
         }
     }
     
@@ -385,6 +426,13 @@ class DetectionBasedRecordingTestActivity : AppCompatActivity(),
     private fun shutdownDetectionSystem() {
         isSystemReady = false
         isInternalCameraInitialized = false
+        
+        // Reset FPS tracking
+        lastUsbFrameCount = 0L
+        lastInternalFrameCount = 0L
+        lastFpsUpdateTime = 0L
+        usbFps = 0.0
+        internalFps = 0.0
         
         try {
             detectionRecorder?.stopMonitoring()

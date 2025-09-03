@@ -218,7 +218,7 @@ class USBCameraImpl(
             data = data,
             width = width,
             height = height,
-            format = FrameFormat.NV21, // AUSBC typically provides NV21
+            format = FrameFormat.RGBA, // AUSBC provides RGBA with OpenGL render mode + rawPreviewData=false
             timestamp = System.currentTimeMillis()
         )
         
@@ -226,10 +226,18 @@ class USBCameraImpl(
     }
 
     override fun onDetectionFrameAvailable(bitmap: Bitmap, rotation: Int, timestamp: Long, source: CameraType) {
+        val methodStartTime = System.currentTimeMillis()
         Log.d(TAG, "📥 USBCameraImpl.onDetectionFrameAvailable: FRAME_RECEIVED - ${bitmap.width}x${bitmap.height} from bridge")
         Log.d(TAG, "📤 USBCameraImpl.onDetectionFrameAvailable: FORWARDING_TO_RECORDER - callback=${detectionFrameCallback != null}")
+        
+        val callbackStartTime = System.currentTimeMillis()
         // Forward detection frame to the stored detection callback
         detectionFrameCallback?.onDetectionFrameAvailable(bitmap, rotation, timestamp, source)
+        val callbackDuration = System.currentTimeMillis() - callbackStartTime
+        Log.d(TAG, "USBCameraImpl.onDetectionFrameAvailable: ----------------------------------- Callback forwarding took ${callbackDuration}ms")
+        
+        val totalDuration = System.currentTimeMillis() - methodStartTime
+        Log.d(TAG, "USBCameraImpl.onDetectionFrameAvailable: ----------------------------------- Total method duration ${totalDuration}ms")
         Log.d(TAG, "✅ USBCameraImpl.onDetectionFrameAvailable: CALLBACK_SENT - Frame forwarded to DetectionBasedRecorder")
     }
 

@@ -243,20 +243,30 @@ internal class AUSBCBridgeFragment : CameraFragment() {
                 
                 val previewCallback = object : IPreviewDataCallBack {
                     override fun onPreviewData(data: ByteArray?, width: Int, height: Int, format: IPreviewDataCallBack.DataFormat) {
+                        val callbackStartTime = System.currentTimeMillis()
                         Log.v(TAG, "📸 AUSBCBridgeFragment.onPreviewData: FRAME_RECEIVED - ${width}x${height}, format=$format, dataSize=${data?.size ?: 0}")
                         
                         if (data != null) {
                             // Handle legacy frame callback
                             if (cameraConfig.enableFrameCallback) {
+                                val frameCallbackStart = System.currentTimeMillis()
                                 bridgeCallback?.onFrameAvailable(data, width, height)
+                                val frameCallbackDuration = System.currentTimeMillis() - frameCallbackStart
+                                Log.d(TAG, "AUSBCBridgeFragment.onPreviewData: ----------------------------------- Frame callback took ${frameCallbackDuration}ms")
                             }
                             
                             // Handle optimized detection frames
                             if (cameraConfig.enableDetectionFrames) {
                                 Log.v(TAG, "AUSBCBridgeFragment.onPreviewFrame: Processing detection frame ${width}x${height}, format=$format")
+                                val detectionFrameStart = System.currentTimeMillis()
                                 processDetectionFrame(data, width, height, format)
+                                val detectionFrameDuration = System.currentTimeMillis() - detectionFrameStart
+                                Log.d(TAG, "AUSBCBridgeFragment.onPreviewData: ----------------------------------- Detection frame processing took ${detectionFrameDuration}ms")
                             }
                         }
+                        
+                        val totalCallbackDuration = System.currentTimeMillis() - callbackStartTime
+                        Log.d(TAG, "AUSBCBridgeFragment.onPreviewData: ----------------------------------- Total callback duration ${totalCallbackDuration}ms")
                     }
                 }
                 
@@ -342,21 +352,23 @@ internal class AUSBCBridgeFragment : CameraFragment() {
     override fun getCameraRequest(): CameraRequest {
         Log.d(TAG, "AUSBCBridgeFragment.getCameraRequest: AUSBC requesting camera config")
         
-        // IMPORTANT: When using OpenGL render mode with raw preview data,
-        // the AUSBC library will deliver frames through the IPreviewDataCallBack
+        // CORRECT RGBA CONFIGURATION:
+        // - OpenGL render mode enables RenderManager with RGBA output
+        // - rawPreviewData=FALSE ensures preview callbacks go through RenderManager (RGBA path)
+        // - rawPreviewData=TRUE bypasses RenderManager and uses direct UVC (NV21 path)
         val request = CameraRequest.Builder()
             .setPreviewWidth(cameraConfig.width)
             .setPreviewHeight(cameraConfig.height)
-            .setRenderMode(CameraRequest.RenderMode.OPENGL)
+            .setRenderMode(CameraRequest.RenderMode.OPENGL) // Enables RGBA pipeline
             .setDefaultRotateType(RotateType.ANGLE_0)
             .setAudioSource(CameraRequest.AudioSource.SOURCE_AUTO) // to mute the audio
             .setPreviewFormat(CameraRequest.PreviewFormat.FORMAT_MJPEG)
             .setAspectRatioShow(true)
-            .setCaptureRawImage(false) // TODO: Check the source code of ausbc to understand what this does
-            .setRawPreviewData(true) // CRITICAL: Must be true to receive preview frames
+            .setCaptureRawImage(false)
+            .setRawPreviewData(false) // CRITICAL: FALSE = RGBA via RenderManager, TRUE = NV21 via UVC
             .create()
             
-        Log.d(TAG, "AUSBCBridgeFragment.getCameraRequest: Created request - renderMode=OPENGL, rawPreviewData=true, format=MJPEG, size=${cameraConfig.width}x${cameraConfig.height}")
+        Log.d(TAG, "AUSBCBridgeFragment.getCameraRequest: ✅ RGBA_CONFIG - renderMode=OPENGL, rawPreviewData=false, format=MJPEG, size=${cameraConfig.width}x${cameraConfig.height}")
         return request
     }
     
@@ -506,12 +518,14 @@ internal class AUSBCBridgeFragment : CameraFragment() {
      * Handles both RGBA and NV21 formats from AUSBC
      */
     private fun processDetectionFrame(data: ByteArray, width: Int, height: Int, format: IPreviewDataCallBack.DataFormat) {
+        val methodStartTime = System.currentTimeMillis()
         try {
             Log.v(TAG, "AUSBCBridgeFragment.processDetectionFrame: Converting frame ${width}x${height}, format=$format, dataSize=${data.size}")
             
+            val conversionStartTime = System.currentTimeMillis()
             val bitmap = when (format) {
                 IPreviewDataCallBack.DataFormat.RGBA -> {
-                    // Efficient RGBA to Bitmap conversion
+                    Log.d(TAG, "AUSBCBridgeFragment.processDetectionFrame: ✅ RGBA format detected - using optimized conversion")
                     convertRGBAToBitmap(data, width, height)
                 }
                 IPreviewDataCallBack.DataFormat.NV21 -> {
@@ -519,16 +533,22 @@ internal class AUSBCBridgeFragment : CameraFragment() {
                     convertNV21ToBitmap(data, width, height)
                 }
             }
+            val conversionDuration = System.currentTimeMillis() - conversionStartTime
+            Log.d(TAG, "AUSBCBridgeFragment.processDetectionFrame: ----------------------------------- Bitmap conversion took ${conversionDuration}ms")
             
             if (bitmap != null) {
                 val timestamp = System.currentTimeMillis()
                 Log.v(TAG, "AUSBCBridgeFragment.processDetectionFrame: Bitmap created successfully, calling bridge callback")
+                
+                val callbackStartTime = System.currentTimeMillis()
                 bridgeCallback?.onDetectionFrameAvailable(
                     bitmap = bitmap,
                     rotation = 0, // USB cameras typically don't need rotation
                     timestamp = timestamp,
                     source = CameraType.USB
                 )
+                val callbackDuration = System.currentTimeMillis() - callbackStartTime
+                Log.d(TAG, "AUSBCBridgeFragment.processDetectionFrame: ----------------------------------- Bridge callback took ${callbackDuration}ms")
             } else {
                 Log.w(TAG, "AUSBCBridgeFragment.processDetectionFrame: Failed to create bitmap from frame data")
             }
@@ -536,16 +556,22 @@ internal class AUSBCBridgeFragment : CameraFragment() {
         } catch (e: Exception) {
             Log.e(TAG, "AUSBCBridgeFragment.processDetectionFrame: Error processing detection frame: ${e.message}", e)
         }
+        
+        val totalMethodDuration = System.currentTimeMillis() - methodStartTime
+        Log.d(TAG, "AUSBCBridgeFragment.processDetectionFrame: ----------------------------------- Total method duration ${totalMethodDuration}ms")
     }
     
     /**
      * Convert RGBA byte array to Bitmap (efficient for detection)
      */
     private fun convertRGBAToBitmap(data: ByteArray, width: Int, height: Int): Bitmap? {
+        val startTime = System.currentTimeMillis()
         return try {
             val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
             val buffer = java.nio.ByteBuffer.wrap(data)
             bitmap.copyPixelsFromBuffer(buffer)
+            val duration = System.currentTimeMillis() - startTime
+            Log.d(TAG, "AUSBCBridgeFragment.convertRGBAToBitmap: ----------------------------------- RGBA conversion took ${duration}ms")
             bitmap
         } catch (e: Exception) {
             Log.e(TAG, "Error converting RGBA to Bitmap", e)
@@ -558,7 +584,9 @@ internal class AUSBCBridgeFragment : CameraFragment() {
      * This is a fallback when RGBA is not available
      */
     private fun convertNV21ToBitmap(data: ByteArray, width: Int, height: Int): Bitmap? {
+        val startTime = System.currentTimeMillis()
         return try {
+            val yuvImageStartTime = System.currentTimeMillis()
             val yuvImage = android.graphics.YuvImage(
                 data, 
                 android.graphics.ImageFormat.NV21, 
@@ -566,11 +594,25 @@ internal class AUSBCBridgeFragment : CameraFragment() {
                 height, 
                 null
             )
+            val yuvImageDuration = System.currentTimeMillis() - yuvImageStartTime
+            Log.d(TAG, "AUSBCBridgeFragment.convertNV21ToBitmap: ----------------------------------- YuvImage creation took ${yuvImageDuration}ms")
             
+            val compressionStartTime = System.currentTimeMillis()
             val out = java.io.ByteArrayOutputStream()
             yuvImage.compressToJpeg(android.graphics.Rect(0, 0, width, height), 100, out)
             val imageBytes = out.toByteArray()
-            android.graphics.BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.size)
+            val compressionDuration = System.currentTimeMillis() - compressionStartTime
+            Log.d(TAG, "AUSBCBridgeFragment.convertNV21ToBitmap: ----------------------------------- JPEG compression took ${compressionDuration}ms")
+            
+            val decodingStartTime = System.currentTimeMillis()
+            val bitmap = android.graphics.BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.size)
+            val decodingDuration = System.currentTimeMillis() - decodingStartTime
+            Log.d(TAG, "AUSBCBridgeFragment.convertNV21ToBitmap: ----------------------------------- JPEG decoding took ${decodingDuration}ms")
+            
+            val totalDuration = System.currentTimeMillis() - startTime
+            Log.d(TAG, "AUSBCBridgeFragment.convertNV21ToBitmap: ----------------------------------- Total NV21 conversion took ${totalDuration}ms")
+            
+            bitmap
             
         } catch (e: Exception) {
             Log.e(TAG, "Error converting NV21 to Bitmap", e)
