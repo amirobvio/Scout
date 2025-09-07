@@ -1,6 +1,5 @@
 package com.example.mergedapp.camera.bridge
 
-import android.graphics.Bitmap
 import android.hardware.usb.UsbDevice
 import android.os.Bundle
 import android.os.Handler
@@ -17,7 +16,7 @@ import com.jiangdg.ausbc.widget.AspectRatioTextureView
 import com.jiangdg.ausbc.widget.IAspectRatio
 import com.example.mergedapp.camera.CameraConfig
 import com.example.mergedapp.camera.CameraType
-import com.example.mergedapp.camera.DetectionFrameCallback
+import com.example.mergedapp.camera.DetectionFrameListener
 import com.example.mergedapp.camera.FrameFormat
 
 /**
@@ -55,15 +54,13 @@ internal class AUSBCBridgeFragment : CameraFragment() {
     
     // Callbacks to communicate back to USBCameraImpl
     var bridgeCallback: BridgeCallback? = null
-    private var detectionFrameCallback: DetectionFrameCallback? = null
+    private var detectionFrameListener: DetectionFrameListener? = null
     
     interface BridgeCallback {
         fun onCameraOpened()
         fun onCameraClosed() 
         fun onCameraError(error: String)
-        fun onFrameAvailable(data: ByteArray, width: Int, height: Int) // TODO: Why ByteArray ? is this efficient ?
-        fun onDetectionFrameAvailable(bitmap: Bitmap, rotation: Int, timestamp: Long, source: CameraType)
-        fun onRawDetectionFrameAvailable(data: ByteArray, width: Int, height: Int, format: FrameFormat, rotation: Int, timestamp: Long, source: CameraType)
+        fun onFrameAvailable(data: ByteArray, width: Int, height: Int, format: FrameFormat, rotation: Int, timestamp: Long, source: CameraType)
         fun onRecordingStarted(path: String)
         fun onRecordingStopped(path: String)
         fun onRecordingError(error: String)
@@ -72,8 +69,8 @@ internal class AUSBCBridgeFragment : CameraFragment() {
     /**
      * Set detection frame callback for optimized frame delivery
      */
-    fun setDetectionFrameCallback(callback: DetectionFrameCallback?) {
-        this.detectionFrameCallback = callback
+    fun setDetectionFrameCallback(callback: DetectionFrameListener?) {
+        this.detectionFrameListener = callback
         Log.d(TAG, "AUSBCBridgeFragment: Detection frame callback set: ${callback != null}")
     }
     
@@ -240,8 +237,8 @@ internal class AUSBCBridgeFragment : CameraFragment() {
         
         try {
             // Check if we need preview callbacks
-            if (cameraConfig.enableFrameCallback || cameraConfig.enableDetectionFrames) {
-                Log.d(TAG, "AUSBCBridgeFragment.setupPreviewCallbackAfterCameraOpen: Registering preview callback - frameCallback=${cameraConfig.enableFrameCallback}, detectionFrames=${cameraConfig.enableDetectionFrames}")
+            if (cameraConfig.enableDetectionFrames) {
+                Log.d(TAG, "AUSBCBridgeFragment.setupPreviewCallbackAfterCameraOpen: Registering preview callback - detectionFrames=${cameraConfig.enableDetectionFrames}")
                 
                 val previewCallback = object : IPreviewDataCallBack {
                     override fun onPreviewData(data: ByteArray?, width: Int, height: Int, format: IPreviewDataCallBack.DataFormat) {
@@ -249,14 +246,6 @@ internal class AUSBCBridgeFragment : CameraFragment() {
                         Log.v(TAG, "📸 AUSBCBridgeFragment.onPreviewData: FRAME_RECEIVED - ${width}x${height}, format=$format, dataSize=${data?.size ?: 0}")
                         
                         if (data != null) {
-                            // Handle legacy frame callback
-                            if (cameraConfig.enableFrameCallback) {
-                                val frameCallbackStart = System.currentTimeMillis()
-                                bridgeCallback?.onFrameAvailable(data, width, height)
-                                val frameCallbackDuration = System.currentTimeMillis() - frameCallbackStart
-                                Log.d(TAG, "AUSBCBridgeFragment.onPreviewData: ----------------------------------- Frame callback took ${frameCallbackDuration}ms")
-                            }
-                            
                             // Handle optimized detection frames
                             if (cameraConfig.enableDetectionFrames) {
                                 Log.v(TAG, "AUSBCBridgeFragment.onPreviewFrame: Processing detection frame ${width}x${height}, format=$format")
@@ -540,7 +529,7 @@ internal class AUSBCBridgeFragment : CameraFragment() {
             
             // Pass raw data to callback - let receiver decide whether to process
             val callbackStartTime = System.currentTimeMillis()
-            bridgeCallback?.onRawDetectionFrameAvailable(
+            bridgeCallback?.onFrameAvailable(
                 data = data,
                 width = width,
                 height = height,
@@ -560,68 +549,11 @@ internal class AUSBCBridgeFragment : CameraFragment() {
         Log.d(TAG, "AUSBCBridgeFragment.processDetectionFrame: ----------------------------------- Total method duration ${totalMethodDuration}ms")
     }
     
-    // TODO: we probably need not do the memory allocation every time
-    private fun convertRGBAToBitmap(data: ByteArray, width: Int, height: Int): Bitmap? {
-        val startTime = System.currentTimeMillis()
-        return try {
-            val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-            val buffer = java.nio.ByteBuffer.wrap(data)
-            bitmap.copyPixelsFromBuffer(buffer)
-            val duration = System.currentTimeMillis() - startTime
-            Log.d(TAG, "AUSBCBridgeFragment.convertRGBAToBitmap: ----------------------------------- RGBA conversion took ${duration}ms")
-            bitmap
-        } catch (e: Exception) {
-            Log.e(TAG, "Error converting RGBA to Bitmap", e)
-            null
-        }
-    }
-    
-    /**
-     * Convert NV21 (YUV420) byte array to RGB Bitmap
-     * This is a fallback when RGBA is not available
-     */
-    private fun convertNV21ToBitmap(data: ByteArray, width: Int, height: Int): Bitmap? {
-        val startTime = System.currentTimeMillis()
-        return try {
-            val yuvImageStartTime = System.currentTimeMillis()
-            val yuvImage = android.graphics.YuvImage(
-                data, 
-                android.graphics.ImageFormat.NV21, 
-                width, 
-                height, 
-                null
-            )
-            val yuvImageDuration = System.currentTimeMillis() - yuvImageStartTime
-            Log.d(TAG, "AUSBCBridgeFragment.convertNV21ToBitmap: ----------------------------------- YuvImage creation took ${yuvImageDuration}ms")
-            
-            val compressionStartTime = System.currentTimeMillis()
-            val out = java.io.ByteArrayOutputStream()
-            yuvImage.compressToJpeg(android.graphics.Rect(0, 0, width, height), 100, out)
-            val imageBytes = out.toByteArray()
-            val compressionDuration = System.currentTimeMillis() - compressionStartTime
-            Log.d(TAG, "AUSBCBridgeFragment.convertNV21ToBitmap: ----------------------------------- JPEG compression took ${compressionDuration}ms")
-            
-            val decodingStartTime = System.currentTimeMillis()
-            val bitmap = android.graphics.BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.size)
-            val decodingDuration = System.currentTimeMillis() - decodingStartTime
-            Log.d(TAG, "AUSBCBridgeFragment.convertNV21ToBitmap: ----------------------------------- JPEG decoding took ${decodingDuration}ms")
-            
-            val totalDuration = System.currentTimeMillis() - startTime
-            Log.d(TAG, "AUSBCBridgeFragment.convertNV21ToBitmap: ----------------------------------- Total NV21 conversion took ${totalDuration}ms")
-            
-            bitmap
-            
-        } catch (e: Exception) {
-            Log.e(TAG, "Error converting NV21 to Bitmap", e)
-            null
-        }
-    }
-    
     override fun onDestroyView() {
         Log.d(TAG, "AUSBCBridgeFragment.onDestroyView: 💥 Destroying bridge fragment view")
         previewSurface = null
         bridgeCallback = null
-        detectionFrameCallback = null
+        detectionFrameListener = null
         super.onDestroyView()
     }
     

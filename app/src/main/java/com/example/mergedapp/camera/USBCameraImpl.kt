@@ -1,7 +1,6 @@
 package com.example.mergedapp.camera
 
 import android.content.Context
-import android.graphics.Bitmap
 import android.hardware.usb.UsbDevice
 import android.util.Log
 import androidx.appcompat.app.AppCompatActivity
@@ -33,9 +32,8 @@ class USBCameraImpl(
     private var bridgeFragment: AUSBCBridgeFragment? = null
     
     // State management
-    private var frameCallback: FrameCallback? = null
-    private var detectionFrameCallback: DetectionFrameCallback? = null
-    private var recordingCallback: RecordingCallback? = null
+    private var detectionFrameListener: DetectionFrameListener? = null
+    private var recordingStateListener: RecordingStateListener? = null
     private var cameraStateListener: CameraStateListener? = null
     private var currentConfig: CameraConfig? = null
     
@@ -43,21 +41,17 @@ class USBCameraImpl(
     private var isCurrentlyRecording = false
     private var currentRecordingPath: String? = null
 
-    override fun startCamera(config: CameraConfig, frameCallback: FrameCallback?) {
+    override fun startCamera(config: CameraConfig) {
         Log.d(TAG, "🚀 Starting USB camera with config: $config")
         
-        this.frameCallback = frameCallback
         this.currentConfig = config
         
         try {
             // Only stop existing camera if there's already one running
             if (bridgeFragment != null) {
-                Log.d(TAG, "🔄 Removing existing bridge fragment first")
                 stopCamera()
             }
-            
-            // Create and add the bridge fragment
-            Log.d(TAG, "🏗️ Creating new bridge fragment...")
+
             bridgeFragment = AUSBCBridgeFragment.newInstance(usbDevice, config).apply {
                 bridgeCallback = this@USBCameraImpl
             }
@@ -67,9 +61,6 @@ class USBCameraImpl(
             fragmentManager.beginTransaction()
                 .add(android.R.id.content, bridgeFragment!!, BRIDGE_FRAGMENT_TAG)  // Add to content container
                 .commit()
-            
-            Log.d(TAG, "🎬 Bridge fragment created and added to activity content container")
-            
         } catch (e: Exception) {
             Log.e(TAG, "Failed to start USB camera", e)
             cameraStateListener?.onCameraError("Failed to start camera: ${e.message}")
@@ -95,8 +86,7 @@ class USBCameraImpl(
             
             // Clear references
             bridgeFragment = null
-            frameCallback = null
-            detectionFrameCallback = null
+            detectionFrameListener = null
             currentConfig = null
             
             Log.d(TAG, "USB camera stopped successfully")
@@ -107,7 +97,7 @@ class USBCameraImpl(
         }
     }
 
-    override fun startRecording(outputPath: String, callback: RecordingCallback) {
+    override fun startRecording(outputPath: String, callback: RecordingStateListener) {
 
         
         if (bridgeFragment == null) {
@@ -120,7 +110,7 @@ class USBCameraImpl(
             return
         }
         
-        this.recordingCallback = callback
+        this.recordingStateListener = callback
         this.currentRecordingPath = outputPath
         
         // Ensure output directory exists
@@ -156,54 +146,25 @@ class USBCameraImpl(
     override fun isAvailable(): Boolean {
         return bridgeFragment != null
     }
-    
-    /**
-     * Toggle preview visibility at runtime
-     * This only affects UI visibility when preview is enabled in config
-     */
+
     fun setPreviewVisibility(visible: Boolean) {
         bridgeFragment?.setPreviewVisibility(visible)
     }
-    
-    /**
-     * Check if preview is enabled in the current configuration
-     */
-    fun isPreviewEnabled(): Boolean = bridgeFragment?.isPreviewEnabled() ?: false
 
     override fun setCameraStateListener(listener: CameraStateListener?) {
         this.cameraStateListener = listener
     }
-    
-    override fun setDetectionFrameCallback(callback: DetectionFrameCallback?) {
+    override fun setDetectionFrameCallback(callback: DetectionFrameListener?) {
         Log.d(TAG, "🔗 USBCameraImpl.setDetectionFrameCallback: SETTING_CALLBACK - callback=${callback != null}")
-        this.detectionFrameCallback = callback
-        // Pass to bridge fragment if it exists
+        this.detectionFrameListener = callback
         bridgeFragment?.setDetectionFrameCallback(callback)
-        Log.d(TAG, "✅ USBCameraImpl.setDetectionFrameCallback: CALLBACK_SET - Bridge notified")
-    }
-    
-    /**
-     * Show the camera preview (useful for debugging)
-     */
-    fun showPreview() {
-        bridgeFragment?.showPreview()
-    }
-    
-    /**
-     * Hide the camera preview
-     */
-    fun hidePreview() {
-        bridgeFragment?.hidePreview()
     }
 
-    // BridgeCallback implementation - these are called by the bridge fragment
     override fun onCameraOpened() {
-        Log.i(TAG, "Camera opened through bridge")
         cameraStateListener?.onCameraOpened()
     }
 
     override fun onCameraClosed() {
-        Log.i(TAG, "Camera closed through bridge")
         cameraStateListener?.onCameraClosed()
     }
 
@@ -212,66 +173,25 @@ class USBCameraImpl(
         cameraStateListener?.onCameraError(error)
     }
 
-    override fun onFrameAvailable(data: ByteArray, width: Int, height: Int) {
-        // Convert AUSBC frame data to our format
-        val cameraFrame = CameraFrame(
-            data = data,
-            width = width,
-            height = height,
-            format = FrameFormat.RGBA, // AUSBC provides RGBA with OpenGL render mode + rawPreviewData=false
-            timestamp = System.currentTimeMillis()
-        )
-        
-        frameCallback?.onFrameAvailable(cameraFrame)
-    }
-
-    override fun onDetectionFrameAvailable(bitmap: Bitmap, rotation: Int, timestamp: Long, source: CameraType) {
-        val methodStartTime = System.currentTimeMillis()
-        Log.d(TAG, "📥 USBCameraImpl.onDetectionFrameAvailable: FRAME_RECEIVED - ${bitmap.width}x${bitmap.height} from bridge")
-        Log.d(TAG, "📤 USBCameraImpl.onDetectionFrameAvailable: FORWARDING_TO_RECORDER - callback=${detectionFrameCallback != null}")
-        
-        val callbackStartTime = System.currentTimeMillis()
-        // Forward detection frame to the stored detection callback
-        detectionFrameCallback?.onDetectionFrameAvailable(bitmap, rotation, timestamp, source)
-        val callbackDuration = System.currentTimeMillis() - callbackStartTime
-        Log.d(TAG, "USBCameraImpl.onDetectionFrameAvailable: ----------------------------------- Callback forwarding took ${callbackDuration}ms")
-        
-        val totalDuration = System.currentTimeMillis() - methodStartTime
-        Log.d(TAG, "USBCameraImpl.onDetectionFrameAvailable: ----------------------------------- Total method duration ${totalDuration}ms")
-        Log.d(TAG, "✅ USBCameraImpl.onDetectionFrameAvailable: CALLBACK_SENT - Frame forwarded to DetectionBasedRecorder")
-    }
-    
-    override fun onRawDetectionFrameAvailable(data: ByteArray, width: Int, height: Int, format: FrameFormat, rotation: Int, timestamp: Long, source: CameraType) {
-        val methodStartTime = System.currentTimeMillis()
-        Log.d(TAG, "📥 USBCameraImpl.onRawDetectionFrameAvailable: RAW_FRAME_RECEIVED - ${width}x${height}, format=$format, size=${data.size}")
-        
-        val callbackStartTime = System.currentTimeMillis()
-        detectionFrameCallback?.onRawFrameAvailable(data, width, height, format, rotation, timestamp, source)
-        val callbackDuration = System.currentTimeMillis() - callbackStartTime
-        Log.d(TAG, "USBCameraImpl.onRawDetectionFrameAvailable: ----------------------------------- Raw callback forwarding took ${callbackDuration}ms")
-        
-        val totalDuration = System.currentTimeMillis() - methodStartTime
-        Log.d(TAG, "USBCameraImpl.onRawDetectionFrameAvailable: ----------------------------------- Total method duration ${totalDuration}ms")
-        Log.d(TAG, "✅ USBCameraImpl.onRawDetectionFrameAvailable: RAW_CALLBACK_SENT - Raw frame forwarded to DetectionBasedRecorder")
+    override fun onFrameAvailable(data: ByteArray, width: Int, height: Int, format: FrameFormat, rotation: Int, timestamp: Long, source: CameraType) {
+//        Log.d(TAG, "📥 USBCameraImpl.onRawDetectionFrameAvailable: RAW_FRAME_RECEIVED - ${width}x${height}, format=$format, size=${data.size}")
+        detectionFrameListener?.onFrameAvailable(data, width, height, format, rotation, timestamp, source)
     }
 
     override fun onRecordingStarted(path: String) {
         isCurrentlyRecording = true
-        Log.d(TAG, "Recording started through bridge: $path")
-        recordingCallback?.onRecordingStarted(path)
+        recordingStateListener?.onRecordingStarted(path)
     }
 
     override fun onRecordingStopped(path: String) {
         isCurrentlyRecording = false
         currentRecordingPath = null
-        Log.d(TAG, "Recording stopped through bridge: $path")
-        recordingCallback?.onRecordingStopped(path)
+        recordingStateListener?.onRecordingStopped(path)
     }
 
     override fun onRecordingError(error: String) {
         isCurrentlyRecording = false
         currentRecordingPath = null
-        Log.e(TAG, "Recording error through bridge: $error")
-        recordingCallback?.onRecordingError(error)
+        recordingStateListener?.onRecordingError(error)
     }
 }

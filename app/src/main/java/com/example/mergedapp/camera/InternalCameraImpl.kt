@@ -35,27 +35,20 @@ class InternalCameraImpl(
     private var camera: Camera? = null
     
     // State management
-    private var frameCallback: FrameCallback? = null
-    private var detectionFrameCallback: DetectionFrameCallback? = null
-    private var recordingCallback: RecordingCallback? = null
+    private var detectionFrameListener: DetectionFrameListener? = null
+    private var recordingStateListener: RecordingStateListener? = null
     private var cameraStateListener: CameraStateListener? = null
     private var currentConfig: CameraConfig? = null
     
     // Recording state
     private var isCurrentlyRecording = false
     private var currentRecording: Recording? = null
-    
-    // Camera executor for background operations
     private lateinit var cameraExecutor: ExecutorService
-    
-    // Frame processing
-    private lateinit var bitmapBuffer: Bitmap              // For legacy frame callback
     private lateinit var detectionBitmapBuffer: Bitmap     // Optimized buffer for detection
 
-    override fun startCamera(config: CameraConfig, frameCallback: FrameCallback?) {
+    override fun startCamera(config: CameraConfig) {
         Log.d(TAG, "🚀 Starting internal camera with config: $config")
         
-        this.frameCallback = frameCallback
         this.currentConfig = config
         
         // Initialize camera executor
@@ -92,8 +85,7 @@ class InternalCameraImpl(
             imageAnalyzer = null
             videoCapture = null
             camera = null
-            frameCallback = null
-            detectionFrameCallback = null
+            detectionFrameListener = null
             currentConfig = null
             
             Log.d(TAG, "Internal camera stopped successfully")
@@ -105,30 +97,21 @@ class InternalCameraImpl(
         }
     }
 
-    override fun startRecording(outputPath: String, callback: RecordingCallback) {
-        Log.d(TAG, "Starting recording to: $outputPath")
-        
+    override fun startRecording(outputPath: String, callback: RecordingStateListener) {
         if (videoCapture == null) {
             callback.onRecordingError("Video capture not initialized")
             return
         }
-        
         if (isCurrentlyRecording) {
             callback.onRecordingError("Already recording")
             return
         }
-        
-        this.recordingCallback = callback
+        this.recordingStateListener = callback
         
         try {
-            // Ensure output directory exists
             val outputFile = File(outputPath)
             outputFile.parentFile?.mkdirs()
-            
-            // Create FileOutputOptions
             val outputOptions = FileOutputOptions.Builder(outputFile).build()
-            
-            // Start recording
             currentRecording = videoCapture!!.output
                 .prepareRecording(context, outputOptions)
                 .start(ContextCompat.getMainExecutor(context)) { recordEvent ->
@@ -142,8 +125,6 @@ class InternalCameraImpl(
     }
 
     override fun stopRecording() {
-        Log.d(TAG, "Stopping recording")
-        
         if (!isCurrentlyRecording) {
             Log.w(TAG, "Not currently recording")
             return
@@ -153,7 +134,7 @@ class InternalCameraImpl(
             currentRecording?.stop()
         } catch (e: Exception) {
             Log.e(TAG, "Error stopping recording", e)
-            recordingCallback?.onRecordingError("Error stopping recording: ${e.message}")
+            recordingStateListener?.onRecordingError("Error stopping recording: ${e.message}")
         }
     }
 
@@ -169,19 +150,11 @@ class InternalCameraImpl(
         this.cameraStateListener = listener
     }
     
-    override fun setDetectionFrameCallback(callback: DetectionFrameCallback?) {
-        this.detectionFrameCallback = callback
+    override fun setDetectionFrameCallback(callback: DetectionFrameListener?) {
+        this.detectionFrameListener = callback
         Log.d(TAG, "Detection frame callback set: ${callback != null}")
     }
-    
-    /**
-     * Get preview use case for external surface provider
-     */
-    fun getPreview(): Preview? = preview
-    
-    /**
-     * Set up CameraX provider and bind use cases
-     */
+
     private fun setupCameraProvider() {
         val cameraProviderFuture = ProcessCameraProvider.getInstance(context)
         
@@ -200,10 +173,7 @@ class InternalCameraImpl(
             }
         }, ContextCompat.getMainExecutor(context))
     }
-    
-    /**
-     * Set up all CameraX use cases
-     */
+
     private fun setupUseCases() {
         val config = currentConfig ?: CameraConfig()
         
@@ -213,7 +183,7 @@ class InternalCameraImpl(
             .build()
         
         // Image analysis for frame callbacks (if enabled)
-        if (config.enableFrameCallback || config.enableDetectionFrames) {
+        if (config.enableDetectionFrames) {
             imageAnalyzer = ImageAnalysis.Builder()
                 .setTargetAspectRatio(AspectRatio.RATIO_4_3)
                 .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
@@ -221,11 +191,7 @@ class InternalCameraImpl(
                 .build()
                 .also { analyzer ->
                     analyzer.setAnalyzer(cameraExecutor) { imageProxy ->
-                        if (config.enableDetectionFrames) {
-                            processDetectionFrame(imageProxy)
-                        } else {
-                            processFrame(imageProxy)
-                        }
+                        processDetectionFrame(imageProxy)
                     }
                 }
         }
@@ -242,10 +208,7 @@ class InternalCameraImpl(
         Log.d(TAG, "Use cases set up: preview=${preview != null}, " +
                 "imageAnalyzer=${imageAnalyzer != null}, videoCapture=${videoCapture != null}")
     }
-    
-    /**
-     * Bind use cases to camera lifecycle
-     */
+
     private fun bindUseCases() {
         val provider = cameraProvider ?: throw IllegalStateException("Camera provider not initialized")
         
@@ -280,46 +243,7 @@ class InternalCameraImpl(
         }
     }
     
-    // TODO: don't use the two callbacks process frame and process detection frame
-    private fun processFrame(imageProxy: ImageProxy) {
-        try {
-            // Initialize bitmap buffer if needed
-            if (!::bitmapBuffer.isInitialized) {
-                bitmapBuffer = Bitmap.createBitmap(
-                    imageProxy.width,
-                    imageProxy.height,
-                    Bitmap.Config.ARGB_8888
-                )
-            }
-            
-            // Copy frame data
-            imageProxy.use { proxy ->
-                bitmapBuffer.copyPixelsFromBuffer(proxy.planes[0].buffer)
-                
-                // Convert to our CameraFrame format
-                val frameData = ByteArray(bitmapBuffer.byteCount)
-                val buffer = java.nio.ByteBuffer.allocate(bitmapBuffer.byteCount)
-                bitmapBuffer.copyPixelsToBuffer(buffer)
-                buffer.rewind()
-                buffer.get(frameData)
-                
-                val cameraFrame = CameraFrame(
-                    data = frameData,
-                    width = proxy.width,
-                    height = proxy.height,
-                    format = FrameFormat.RGBA,
-                    timestamp = System.currentTimeMillis()
-                )
-                
-                // Call frame callback
-                frameCallback?.onFrameAvailable(cameraFrame)
-            }
-            
-        } catch (e: Exception) {
-            Log.e(TAG, "Error processing frame", e)
-        }
-    }
-    
+
 
     private fun processDetectionFrame(imageProxy: ImageProxy) {
         try {
@@ -340,9 +264,7 @@ class InternalCameraImpl(
                 // Get rotation and timestamp
                 val rotation = proxy.imageInfo.rotationDegrees
                 val timestamp = System.currentTimeMillis()
-                
-                // For InternalCamera, pass raw RGBA data instead of bitmap
-                // Extract raw RGBA data from the bitmap buffer
+
                 val rawDataBuffer = ByteArray(detectionBitmapBuffer.byteCount)
                 val byteBuffer = java.nio.ByteBuffer.allocate(detectionBitmapBuffer.byteCount)
                 detectionBitmapBuffer.copyPixelsToBuffer(byteBuffer)
@@ -350,7 +272,7 @@ class InternalCameraImpl(
                 byteBuffer.get(rawDataBuffer)
                 
                 // Call raw frame callback to match USB camera pipeline
-                detectionFrameCallback?.onRawFrameAvailable(
+                detectionFrameListener?.onFrameAvailable(
                     data = rawDataBuffer,
                     width = proxy.width,
                     height = proxy.height,
@@ -374,7 +296,7 @@ class InternalCameraImpl(
             is VideoRecordEvent.Start -> {
                 Log.d(TAG, "Recording started successfully")
                 isCurrentlyRecording = true
-                recordingCallback?.onRecordingStarted(outputPath)
+                recordingStateListener?.onRecordingStarted(outputPath)
             }
             is VideoRecordEvent.Finalize -> {
                 Log.d(TAG, "Recording finalized")
@@ -383,10 +305,10 @@ class InternalCameraImpl(
                 
                 if (recordEvent.hasError()) {
                     Log.e(TAG, "Recording failed: ${recordEvent.error}")
-                    recordingCallback?.onRecordingError("Recording failed: ${recordEvent.error}")
+                    recordingStateListener?.onRecordingError("Recording failed: ${recordEvent.error}")
                 } else {
                     Log.d(TAG, "Recording completed successfully: $outputPath")
-                    recordingCallback?.onRecordingStopped(outputPath)
+                    recordingStateListener?.onRecordingStopped(outputPath)
                 }
             }
             is VideoRecordEvent.Status -> {

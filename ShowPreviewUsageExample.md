@@ -20,7 +20,6 @@ val config = CameraConfig(
     width = 1920,
     height = 1080,
     showPreview = false,  // Enable offscreen mode
-    enableFrameCallback = false,  // Only needed if you want frame data
     enableDetectionFrames = false  // Only for detection use cases
 )
 
@@ -43,7 +42,6 @@ val config = CameraConfig(
     width = 1920,
     height = 1080,
     showPreview = true,  // Normal preview mode
-    enableFrameCallback = false,
     enableDetectionFrames = false
 )
 
@@ -109,7 +107,7 @@ if (usbCamera.isPreviewEnabled()) {
 
 1. **Use offscreen mode for recording-only applications** to maximize performance
 2. **Use runtime toggle** when you need to switch between preview and recording-only modes
-3. **Keep frame callbacks disabled** unless you specifically need frame data
+3. **Keep detection frames disabled** unless you specifically need detection
 4. **Monitor battery usage** - offscreen mode should provide better battery life
 
 ## Example: Surveillance Application
@@ -122,8 +120,7 @@ class SurveillanceRecorder {
         val config = CameraConfig(
             width = 1920,
             height = 1080,
-            showPreview = false,  // Silent operation
-            enableFrameCallback = false
+            showPreview = false  // Silent operation
         )
         
         usbCamera.startCamera(config)
@@ -138,8 +135,7 @@ class SurveillanceRecorder {
         val config = CameraConfig(
             width = 1280,
             height = 720,
-            showPreview = true,  // Show preview for monitoring
-            enableFrameCallback = false
+            showPreview = true  // Show preview for monitoring
         )
         
         usbCamera.startCamera(config)

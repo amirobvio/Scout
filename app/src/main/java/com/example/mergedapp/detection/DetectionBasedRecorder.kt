@@ -21,30 +21,27 @@ import java.util.concurrent.atomic.AtomicLong
 
 /**
  * DetectionBasedRecorder - Manages detection-triggered recording for both cameras
- * 
+ *
  * This class acts as the intermediary between cameras and the detection system,
  * implementing the detection logic from detection_test project with recording control.
- * 
+ *
  * Features:
  * - Frame interval processing (every 15th frame like detection_test)
  * - Detection-triggered recording start/stop
  * - Consecutive non-detection counting for recording stop
  * - Unified handling for both USB and Internal cameras
- * - Thread-safe operations
  */
 
 
 class DetectionBasedRecorder(
-    private val context: Context,
-    private val usbCamera: ICamera? = null,
-    private val internalCamera: ICamera? = null
-) : DetectionFrameCallback, DetectionModule.DetectionListener, CameraStateListener {
+    private val context: Context
+) : DetectionFrameListener, DetectionModule.DetectionListener, CameraStateListener {
     
     // Alternative constructor for USB device management
     constructor(
         context: Context,
         activityContext: AppCompatActivity? = null
-    ) : this(context, null, null) {
+    ) : this(context) {
         this.activityContext = activityContext
     }
     
@@ -64,7 +61,6 @@ class DetectionBasedRecorder(
     private val detectionExecutor: ExecutorService = Executors.newSingleThreadExecutor()
     private val mainHandler = Handler(Looper.getMainLooper())
     
-    // TODO: Check if we can remove this. This may not be useful 
     private val isInitialized = AtomicBoolean(false)
     
     // Frame counting for detection interval (same as detection_test)
@@ -144,7 +140,6 @@ class DetectionBasedRecorder(
             val config = CameraConfig(
                 width = 1280, 
                 height = 720,
-                enableFrameCallback = false,
                 enableDetectionFrames = true,
                 showPreview = false
             )
@@ -180,7 +175,6 @@ class DetectionBasedRecorder(
             val config = CameraConfig(
                 width = 1280,
                 height = 720,
-                enableFrameCallback = false,
                 enableDetectionFrames = true,
                 showPreview = false
             )
@@ -200,24 +194,7 @@ class DetectionBasedRecorder(
         this.recordingListener = listener
     }
 
-    fun startMonitoring() {
-        if (!isInitialized.get()) {
-            Log.w(TAG, logFormat("startMonitoring", "DetectionBasedRecorder not initialized. Call initialize() first."))
-            return
-        }
 
-        managedUSBCamera?.setDetectionFrameCallback(this)
-        managedInternalCamera?.setDetectionFrameCallback(this)
-        Log.d(TAG, logFormat("startMonitoring", "Detection frame callbacks set - USB: ${managedUSBCamera != null}, Internal: ${managedInternalCamera != null}"))
-        
-
-        usbFrameCounter.set(0)
-        internalFrameCounter.set(0)
-        usbConsecutiveNonDetections.set(0)
-        internalConsecutiveNonDetections.set(0)
-    }
-    
-    
     fun stopMonitoring() {
         Log.d(TAG, logFormat("stopMonitoring", "Stopping detection-based recording monitoring"))
         
@@ -270,46 +247,13 @@ class DetectionBasedRecorder(
     }
     
 
-    override fun onDetectionFrameAvailable(bitmap: Bitmap, rotation: Int, timestamp: Long, source: CameraType) {
-        // Legacy method - kept for backward compatibility
-        // New pipeline uses onRawFrameAvailable() for better memory management
-        val methodStartTime = System.currentTimeMillis()
-        Log.d(TAG, logFormat("onDetectionFrameAvailable", "🎯 LEGACY_FRAME_RECEIVED - ${source} camera: ${bitmap.width}x${bitmap.height}"))
-        
-        if (!isInitialized.get()) {
-            Log.w(TAG, logFormat("onDetectionFrameAvailable", "⚠️ FRAME_DROPPED - Recorder not initialized"))
-            return
-        }
+    override fun onFrameAvailable(data: ByteArray, width: Int, height: Int, format: FrameFormat, rotation: Int, timestamp: Long, source: CameraType) {
 
-        // Direct processing for legacy bitmap frames (no frame counting needed)
-        Log.d(TAG, logFormat("onDetectionFrameAvailable", "🔄 PROCESSING_LEGACY_FRAME from $source camera"))
-        
-        val submissionStartTime = System.currentTimeMillis()
-        detectionExecutor.submit {
-            try {
-                processDetectionFrame(bitmap, rotation, source, timestamp)
-            } catch (e: Exception) {
-                Log.e(TAG, logFormat("onDetectionFrameAvailable", "💥 LEGACY_FRAME_PROCESSING_ERROR - ${e.message}"), e)
-            }
-        }
-        val submissionDuration = System.currentTimeMillis() - submissionStartTime
-        Log.d(TAG, logFormat("onDetectionFrameAvailable", "----------------------------------- Legacy executor submission took ${submissionDuration}ms"))
-        
-        val totalMethodDuration = System.currentTimeMillis() - methodStartTime
-        Log.d(TAG, logFormat("onDetectionFrameAvailable", "----------------------------------- Legacy total method duration ${totalMethodDuration}ms"))
-    }
-    
-
-
-    override fun onRawFrameAvailable(data: ByteArray, width: Int, height: Int, format: FrameFormat, rotation: Int, timestamp: Long, source: CameraType) {
-        val methodStartTime = System.currentTimeMillis()
         Log.d(TAG, logFormat("onRawFrameAvailable", "🎯 RAW_FRAME_RECEIVED - ${source} camera: ${width}x${height}, format=$format, size=${data.size}"))
-        
         if (!isInitialized.get()) {
             Log.w(TAG, logFormat("onRawFrameAvailable", "⚠️ RAW_FRAME_DROPPED - Recorder not initialized"))
             return
         }
-
 
         val shouldProcess = when (source) {
             CameraType.USB -> {
@@ -322,8 +266,9 @@ class DetectionBasedRecorder(
             }
         }
 
-        
         if (shouldProcess) {
+
+            val methodStartTime = System.currentTimeMillis()
             Log.d(TAG, logFormat("onRawFrameAvailable", "🔄 PROCESSING_RAW_FRAME - Frame #${when(source) { CameraType.USB -> usbFrameCounter.get(); CameraType.INTERNAL -> internalFrameCounter.get() }} from $source camera"))
             
             // Convert raw data to bitmap only when processing is needed
@@ -348,13 +293,14 @@ class DetectionBasedRecorder(
             } else {
                 Log.e(TAG, logFormat("onRawFrameAvailable", "❌ CONVERSION_FAILED - Unable to convert raw frame to bitmap"))
             }
-        } else {
-            Log.v(TAG, logFormat("onRawFrameAvailable", "⏭️ RAW_FRAME_SKIPPED - Frame #${when(source) { CameraType.USB -> usbFrameCounter.get(); CameraType.INTERNAL -> internalFrameCounter.get() }} from $source camera (interval)"))
-        }
-        
-        val totalMethodDuration = System.currentTimeMillis() - methodStartTime
-        if (source == CameraType.USB) {
-            Log.d(TAG, logFormat("onRawFrameAvailable", "----------------------------------- USB raw frame total duration ${totalMethodDuration}ms"))
+
+
+            // log the time it took to do detection
+            val totalMethodDuration = System.currentTimeMillis() - methodStartTime
+            if (source == CameraType.USB) {
+                Log.d(TAG, logFormat("onRawFrameAvailable", "----------------------------------- USB raw frame total duration ${totalMethodDuration}ms"))
+            }
+
         }
     }
 
@@ -490,7 +436,8 @@ class DetectionBasedRecorder(
                 }
             }
             
-            camera.startRecording(outputPath, object : RecordingCallback {
+            camera.startRecording(outputPath, object :
+                com.example.mergedapp.camera.RecordingStateListener {
                 override fun onRecordingStarted(outputPath: String) {
                     Log.d(TAG, logFormat("startRecordingForCamera", "$cameraType recording started: $outputPath"))
                     recordingListener?.onRecordingStarted(cameraType, outputPath)
@@ -546,16 +493,7 @@ class DetectionBasedRecorder(
             isInternalRecording = managedInternalCamera?.isRecording() ?: false
         )
     }
-    
 
-    fun isUSBCameraAvailable(): Boolean {
-        return managedUSBCamera?.isAvailable() == true
-    }
-
-    fun isInternalCameraAvailable(): Boolean {
-        return managedInternalCamera?.isAvailable() == true
-    }
-    
     // CameraStateListener implementation for managed cameras
     override fun onCameraOpened() {
         Log.d(TAG, logFormat("onCameraOpened", "Managed camera opened successfully"))
