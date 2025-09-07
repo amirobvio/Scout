@@ -35,7 +35,7 @@ import java.util.concurrent.atomic.AtomicLong
 
 class DetectionBasedRecorder(
     private val context: Context
-) : DetectionFrameListener, DetectionModule.DetectionListener, CameraStateListener {
+) : DetectionFrameCallback, DetectionModule.DetectionListener, CameraStateListener {
     
     // Alternative constructor for USB device management
     constructor(
@@ -73,7 +73,7 @@ class DetectionBasedRecorder(
     
     // USB device management
     private var activityContext: AppCompatActivity? = null
-    private var managedUSBCamera: USBCameraImpl? = null
+    private var managedUSBCamera: USBCameraFragment? = null
     private var managedInternalCamera: InternalCameraImpl? = null
 
     
@@ -131,23 +131,24 @@ class DetectionBasedRecorder(
             Log.d(TAG, logFormat("initializeUSBCamera", "Initializing USB camera with device: ${device.productName ?: device.deviceName}"))
 
             
-            // Create managed USB camera
-            managedUSBCamera = USBCameraImpl(activityContext!!, device, activityContext!!)
-            managedUSBCamera?.setCameraStateListener(this)
-            
-
-            // TODO: Check if this resolution is for preview or recording
-            val config = CameraConfig(
+            // Create managed USB camera fragment
+            managedUSBCamera = USBCameraFragment.newInstance(device, CameraConfig(
                 width = 1280, 
                 height = 720,
                 enableDetectionFrames = true,
                 showPreview = false
-            )
-            
-            managedUSBCamera?.startCamera(config)
-            
-            // TODO: check why we are again setting this ? we are setting already in initialize
+            ), activityContext!!)
+            managedUSBCamera?.setCameraStateListener(this)
             managedUSBCamera?.setDetectionFrameCallback(this)
+            
+            // Add fragment to activity
+            val fragmentManager = activityContext!!.supportFragmentManager
+            fragmentManager.beginTransaction()
+                .add(android.R.id.content, managedUSBCamera!!, "usb_camera_fragment")
+                .commit()
+            
+
+            // Camera starts automatically when fragment is added
             
         } catch (e: Exception) {
             Log.e(TAG, logFormat("initializeUSBCamera", "Failed to initialize USB camera: ${e.message}"), e)
@@ -215,9 +216,17 @@ class DetectionBasedRecorder(
             stopMonitoring()
             isInitialized.set(false)
             
-            managedUSBCamera?.stopCamera()
+            // Stop and remove USB camera fragment
+            managedUSBCamera?.let { fragment ->
+                fragment.stopCamera()
+                activityContext?.supportFragmentManager?.beginTransaction()
+                    ?.remove(fragment)
+                    ?.commitAllowingStateLoss()
+            }
+            
+            // Stop internal camera
             managedInternalCamera?.stopCamera()
-
+            
             managedUSBCamera?.setDetectionFrameCallback(null)
             managedInternalCamera?.setDetectionFrameCallback(null)
             
@@ -247,8 +256,7 @@ class DetectionBasedRecorder(
     }
     
 
-    override fun onFrameAvailable(data: ByteArray, width: Int, height: Int, format: FrameFormat, rotation: Int, timestamp: Long, source: CameraType) {
-
+    override fun onRawFrameAvailable(data: ByteArray, width: Int, height: Int, format: FrameFormat, rotation: Int, timestamp: Long, source: CameraType) {
         Log.d(TAG, logFormat("onRawFrameAvailable", "🎯 RAW_FRAME_RECEIVED - ${source} camera: ${width}x${height}, format=$format, size=${data.size}"))
         if (!isInitialized.get()) {
             Log.w(TAG, logFormat("onRawFrameAvailable", "⚠️ RAW_FRAME_DROPPED - Recorder not initialized"))
@@ -269,13 +277,13 @@ class DetectionBasedRecorder(
         if (shouldProcess) {
 
             val methodStartTime = System.currentTimeMillis()
-            Log.d(TAG, logFormat("onRawFrameAvailable", "🔄 PROCESSING_RAW_FRAME - Frame #${when(source) { CameraType.USB -> usbFrameCounter.get(); CameraType.INTERNAL -> internalFrameCounter.get() }} from $source camera"))
+            Log.d(TAG, logFormat("onFrameAvailable", "🔄 PROCESSING_RAW_FRAME - Frame #${when(source) { CameraType.USB -> usbFrameCounter.get(); CameraType.INTERNAL -> internalFrameCounter.get() }} from $source camera"))
             
             // Convert raw data to bitmap only when processing is needed
             val conversionStartTime = System.currentTimeMillis()
             val bitmap = FrameConversionUtils.convertToBitmap(data, width, height, format)
             val conversionDuration = System.currentTimeMillis() - conversionStartTime
-            Log.d(TAG, logFormat("onRawFrameAvailable", "----------------------------------- Frame conversion took ${conversionDuration}ms"))
+            Log.d(TAG, logFormat("onFrameAvailable", "----------------------------------- Frame conversion took ${conversionDuration}ms"))
             
             if (bitmap != null) {
                 val submissionStartTime = System.currentTimeMillis()
@@ -283,22 +291,22 @@ class DetectionBasedRecorder(
                     try {
                         processDetectionFrame(bitmap, rotation, source, timestamp)
                     } catch (e: Exception) {
-                        Log.e(TAG, logFormat("onRawFrameAvailable", "💥 RAW_FRAME_PROCESSING_ERROR - ${e.message}"), e)
+                        Log.e(TAG, logFormat("onFrameAvailable", "💥 RAW_FRAME_PROCESSING_ERROR - ${e.message}"), e)
                     }
                 }
                 val submissionDuration = System.currentTimeMillis() - submissionStartTime
                 if (source == CameraType.USB) {
-                    Log.d(TAG, logFormat("onRawFrameAvailable", "----------------------------------- USB executor submission took ${submissionDuration}ms"))
+                    Log.d(TAG, logFormat("onFrameAvailable", "----------------------------------- USB executor submission took ${submissionDuration}ms"))
                 }
             } else {
-                Log.e(TAG, logFormat("onRawFrameAvailable", "❌ CONVERSION_FAILED - Unable to convert raw frame to bitmap"))
+                Log.e(TAG, logFormat("onFrameAvailable", "❌ CONVERSION_FAILED - Unable to convert raw frame to bitmap"))
             }
 
 
             // log the time it took to do detection
             val totalMethodDuration = System.currentTimeMillis() - methodStartTime
             if (source == CameraType.USB) {
-                Log.d(TAG, logFormat("onRawFrameAvailable", "----------------------------------- USB raw frame total duration ${totalMethodDuration}ms"))
+                Log.d(TAG, logFormat("onFrameAvailable", "----------------------------------- USB raw frame total duration ${totalMethodDuration}ms"))
             }
 
         }
@@ -436,8 +444,7 @@ class DetectionBasedRecorder(
                 }
             }
             
-            camera.startRecording(outputPath, object :
-                com.example.mergedapp.camera.RecordingStateListener {
+            camera.startRecording(outputPath, object : RecordingCallback {
                 override fun onRecordingStarted(outputPath: String) {
                     Log.d(TAG, logFormat("startRecordingForCamera", "$cameraType recording started: $outputPath"))
                     recordingListener?.onRecordingStarted(cameraType, outputPath)

@@ -9,12 +9,12 @@ interface ICamera {
 
     fun startCamera(config: CameraConfig)
     fun stopCamera()
-    fun startRecording(outputPath: String, callback: RecordingStateListener)
+    fun startRecording(outputPath: String, callback: RecordingCallback)
     fun stopRecording()
     fun isRecording(): Boolean
     fun isAvailable(): Boolean
     fun setCameraStateListener(listener: CameraStateListener?)
-    fun setDetectionFrameCallback(callback: DetectionFrameListener?)
+    fun setDetectionFrameCallback(callback: DetectionFrameCallback?)
 }
 
 enum class CameraType {
@@ -34,11 +34,11 @@ enum class FrameFormat {
 }
 
 
-interface DetectionFrameListener {
-    fun onFrameAvailable(data: ByteArray, width: Int, height: Int, format: FrameFormat, rotation: Int, timestamp: Long, source: CameraType)
+interface DetectionFrameCallback {
+    fun onRawFrameAvailable(data: ByteArray, width: Int, height: Int, format: FrameFormat, rotation: Int, timestamp: Long, source: CameraType)
 }
 
-interface RecordingStateListener {
+interface RecordingCallback {
     fun onRecordingStarted(outputPath: String)
     fun onRecordingStopped(outputPath: String)
     fun onRecordingError(error: String)

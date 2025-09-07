@@ -35,8 +35,8 @@ class InternalCameraImpl(
     private var camera: Camera? = null
     
     // State management
-    private var detectionFrameListener: DetectionFrameListener? = null
-    private var recordingStateListener: RecordingStateListener? = null
+    private var detectionFrameCallback: DetectionFrameCallback? = null
+    private var recordingCallback: RecordingCallback? = null
     private var cameraStateListener: CameraStateListener? = null
     private var currentConfig: CameraConfig? = null
     
@@ -85,7 +85,7 @@ class InternalCameraImpl(
             imageAnalyzer = null
             videoCapture = null
             camera = null
-            detectionFrameListener = null
+            detectionFrameCallback = null
             currentConfig = null
             
             Log.d(TAG, "Internal camera stopped successfully")
@@ -97,7 +97,7 @@ class InternalCameraImpl(
         }
     }
 
-    override fun startRecording(outputPath: String, callback: RecordingStateListener) {
+    override fun startRecording(outputPath: String, callback: RecordingCallback) {
         if (videoCapture == null) {
             callback.onRecordingError("Video capture not initialized")
             return
@@ -106,7 +106,7 @@ class InternalCameraImpl(
             callback.onRecordingError("Already recording")
             return
         }
-        this.recordingStateListener = callback
+        this.recordingCallback = callback
         
         try {
             val outputFile = File(outputPath)
@@ -134,7 +134,7 @@ class InternalCameraImpl(
             currentRecording?.stop()
         } catch (e: Exception) {
             Log.e(TAG, "Error stopping recording", e)
-            recordingStateListener?.onRecordingError("Error stopping recording: ${e.message}")
+            recordingCallback?.onRecordingError("Error stopping recording: ${e.message}")
         }
     }
 
@@ -150,8 +150,8 @@ class InternalCameraImpl(
         this.cameraStateListener = listener
     }
     
-    override fun setDetectionFrameCallback(callback: DetectionFrameListener?) {
-        this.detectionFrameListener = callback
+    override fun setDetectionFrameCallback(callback: DetectionFrameCallback?) {
+        this.detectionFrameCallback = callback
         Log.d(TAG, "Detection frame callback set: ${callback != null}")
     }
 
@@ -272,7 +272,7 @@ class InternalCameraImpl(
                 byteBuffer.get(rawDataBuffer)
                 
                 // Call raw frame callback to match USB camera pipeline
-                detectionFrameListener?.onFrameAvailable(
+                detectionFrameCallback?.onRawFrameAvailable(
                     data = rawDataBuffer,
                     width = proxy.width,
                     height = proxy.height,
@@ -296,7 +296,7 @@ class InternalCameraImpl(
             is VideoRecordEvent.Start -> {
                 Log.d(TAG, "Recording started successfully")
                 isCurrentlyRecording = true
-                recordingStateListener?.onRecordingStarted(outputPath)
+                recordingCallback?.onRecordingStarted(outputPath)
             }
             is VideoRecordEvent.Finalize -> {
                 Log.d(TAG, "Recording finalized")
@@ -305,10 +305,10 @@ class InternalCameraImpl(
                 
                 if (recordEvent.hasError()) {
                     Log.e(TAG, "Recording failed: ${recordEvent.error}")
-                    recordingStateListener?.onRecordingError("Recording failed: ${recordEvent.error}")
+                    recordingCallback?.onRecordingError("Recording failed: ${recordEvent.error}")
                 } else {
                     Log.d(TAG, "Recording completed successfully: $outputPath")
-                    recordingStateListener?.onRecordingStopped(outputPath)
+                    recordingCallback?.onRecordingStopped(outputPath)
                 }
             }
             is VideoRecordEvent.Status -> {
