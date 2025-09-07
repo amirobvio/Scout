@@ -48,8 +48,7 @@ class USBCameraFragment : CameraFragment(), ICamera {
     // ICamera implementation
     override val cameraType = CameraType.USB
     
-    // Preview surface for AUSBC
-    private var previewSurface: AspectRatioTextureView? = null
+    // Preview surface removed for offscreen mode - saves RAM
     
     // Callbacks
     private var detectionFrameCallback: DetectionFrameCallback? = null
@@ -59,6 +58,10 @@ class USBCameraFragment : CameraFragment(), ICamera {
     // Recording state
     private var isCurrentlyRecording = false
     private var currentRecordingPath: String? = null
+    
+    // Frame tracking for debugging
+    private var frameCount = 0L
+    private var lastFrameLogTime = 0L
     
     // ICamera interface implementation
     override fun startCamera(config: CameraConfig) {
@@ -140,43 +143,24 @@ class USBCameraFragment : CameraFragment(), ICamera {
     
     // AUSBC CameraFragment required methods
     override fun getRootView(inflater: LayoutInflater, container: ViewGroup?): View? {
-        Log.d(TAG, "Creating root view (showPreview: ${cameraConfig.showPreview})")
+        Log.d(TAG, "Creating root view for offscreen mode (no preview)")
         
-        if (!cameraConfig.showPreview) {
-            // Return minimal container for offscreen mode
-            return FrameLayout(requireContext()).apply {
-                layoutParams = ViewGroup.LayoutParams(1, 1)
-                visibility = View.GONE
-            }
+        // Always return minimal invisible view for offscreen mode
+        // This ensures camera works without any preview surface, saving significant RAM
+        return View(requireContext()).apply {
+            layoutParams = ViewGroup.LayoutParams(0, 0)
+            visibility = View.GONE
         }
-        
-        // Create normal layout with preview surface
-        val rootLayout = FrameLayout(requireContext()).apply {
-            layoutParams = ViewGroup.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.MATCH_PARENT
-            )
-        }
-        
-        previewSurface = AspectRatioTextureView(requireContext()).apply {
-            layoutParams = FrameLayout.LayoutParams(
-                cameraConfig.width,
-                cameraConfig.height
-            ).apply {
-                gravity = Gravity.CENTER
-            }
-        }
-        
-        rootLayout.addView(previewSurface)
-        return rootLayout
     }
     
     override fun getCameraView(): IAspectRatio? {
-        return if (cameraConfig.showPreview) previewSurface else null
+        // Always return null for offscreen mode - no preview surface needed
+        return null
     }
     
     override fun getCameraViewContainer(): ViewGroup? {
-        return if (cameraConfig.showPreview) view as? ViewGroup else null
+        // No container needed for offscreen mode
+        return null
     }
     
     override fun getCameraRequest(): CameraRequest {
@@ -187,9 +171,9 @@ class USBCameraFragment : CameraFragment(), ICamera {
             .setDefaultRotateType(RotateType.ANGLE_0)
             .setAudioSource(CameraRequest.AudioSource.SOURCE_AUTO)
             .setPreviewFormat(CameraRequest.PreviewFormat.FORMAT_MJPEG)
-            .setAspectRatioShow(true)
+            .setAspectRatioShow(false)  // No aspect ratio needed in offscreen mode
             .setCaptureRawImage(false)
-            .setRawPreviewData(false) // FALSE = RGBA via RenderManager
+            .setRawPreviewData(true)  // TRUE = Enable raw frames for detection even without preview
             .create()
     }
     
@@ -200,7 +184,7 @@ class USBCameraFragment : CameraFragment(), ICamera {
     
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
-        Log.d(TAG, "onViewCreated - Device: ${targetUsbDevice.deviceName}")
+        Log.d(TAG, "onViewCreated - Device: ${targetUsbDevice.deviceName} (offscreen mode)")
         
         // Enable AUSBC debugging
         try {
@@ -209,10 +193,7 @@ class USBCameraFragment : CameraFragment(), ICamera {
             Log.w(TAG, "Could not enable AUSBC debugging: ${e.message}")
         }
         
-        // Set preview visibility if needed
-        if (cameraConfig.showPreview) {
-            previewSurface?.visibility = View.VISIBLE
-        }
+        // No preview surface to configure in offscreen mode
     }
     
     override fun onCameraState(
@@ -222,36 +203,56 @@ class USBCameraFragment : CameraFragment(), ICamera {
     ) {
         when (code) {
             ICameraStateCallBack.State.OPENED -> {
-                Log.i(TAG, "USB camera opened successfully")
+                Log.i(TAG, "✅ USB camera opened successfully in OFFSCREEN mode (no preview)")
+                Log.i(TAG, "📷 Setting up frame callback for detection...")
                 setupPreviewCallback()
                 cameraStateListener?.onCameraOpened()
             }
             ICameraStateCallBack.State.CLOSED -> {
-                Log.i(TAG, "USB camera closed")
+                Log.i(TAG, "🔴 USB camera closed - Total frames received: $frameCount")
+                frameCount = 0
                 cameraStateListener?.onCameraClosed()
             }
             ICameraStateCallBack.State.ERROR -> {
-                Log.e(TAG, "USB camera error: $msg")
+                Log.e(TAG, "❌ USB camera error: $msg")
                 cameraStateListener?.onCameraError(msg ?: "Unknown camera error")
             }
         }
     }
     
     private fun setupPreviewCallback() {
-        if (!cameraConfig.enableDetectionFrames) return
+        if (!cameraConfig.enableDetectionFrames) {
+            Log.w(TAG, "⚠️ Detection frames disabled in config")
+            return
+        }
         
-        Log.d(TAG, "Setting up preview callback for detection frames")
+        Log.d(TAG, "🔧 Setting up frame callback for OFFSCREEN mode (no preview surface)")
         
         val previewCallback = object : IPreviewDataCallBack {
             override fun onPreviewData(data: ByteArray?, width: Int, height: Int, format: IPreviewDataCallBack.DataFormat) {
                 if (data != null && cameraConfig.enableDetectionFrames) {
+                    frameCount++
+                    
+                    // Log every 30 frames to confirm flow
+                    if (frameCount % 30 == 0L) {
+                        val currentTime = System.currentTimeMillis()
+                        val timeDiff = if (lastFrameLogTime > 0) currentTime - lastFrameLogTime else 0
+                        val fps = if (timeDiff > 0) (30 * 1000.0 / timeDiff) else 0.0
+                        
+                        Log.d(TAG, "📊 USB Frame Flow [OFFSCREEN]: #$frameCount | ${width}x${height} | " +
+                              "Format: $format | FPS: %.1f".format(fps))
+                        lastFrameLogTime = currentTime
+                    }
+                    
                     processDetectionFrame(data, width, height, format)
+                } else if (data == null) {
+                    Log.w(TAG, "⚠️ Received null frame data")
                 }
             }
         }
         
         addPreviewDataCallBack(previewCallback)
-        Log.d(TAG, "Preview callback registered successfully")
+        Log.i(TAG, "✅ Frame callback registered successfully for OFFSCREEN mode")
     }
     
     private fun processDetectionFrame(data: ByteArray, width: Int, height: Int, format: IPreviewDataCallBack.DataFormat) {
@@ -259,6 +260,11 @@ class USBCameraFragment : CameraFragment(), ICamera {
             val frameFormat = when (format) {
                 IPreviewDataCallBack.DataFormat.RGBA -> FrameFormat.RGBA
                 IPreviewDataCallBack.DataFormat.NV21 -> FrameFormat.NV21
+            }
+            
+            // First frame log
+            if (frameCount == 1L) {
+                Log.i(TAG, "🎉 First USB frame received in OFFSCREEN mode! Format: $frameFormat, Size: ${width}x${height}")
             }
             
             // Direct callback to detection system - no intermediate forwarding
@@ -273,7 +279,7 @@ class USBCameraFragment : CameraFragment(), ICamera {
             )
             
         } catch (e: Exception) {
-            Log.e(TAG, "Error processing detection frame: ${e.message}", e)
+            Log.e(TAG, "❌ Error processing detection frame: ${e.message}", e)
         }
     }
     
@@ -330,7 +336,6 @@ class USBCameraFragment : CameraFragment(), ICamera {
     
     override fun onDestroyView() {
         Log.d(TAG, "onDestroyView - cleaning up")
-        previewSurface = null
         detectionFrameCallback = null
         recordingCallback = null
         cameraStateListener = null

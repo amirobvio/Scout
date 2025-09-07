@@ -29,7 +29,7 @@ class InternalCameraImpl(
     
     // CameraX components
     private var cameraProvider: ProcessCameraProvider? = null
-    private var preview: Preview? = null
+    // Preview removed to save RAM - not needed for detection/recording only
     private var imageAnalyzer: ImageAnalysis? = null
     private var videoCapture: VideoCapture<Recorder>? = null
     private var camera: Camera? = null
@@ -45,9 +45,13 @@ class InternalCameraImpl(
     private var currentRecording: Recording? = null
     private lateinit var cameraExecutor: ExecutorService
     private lateinit var detectionBitmapBuffer: Bitmap     // Optimized buffer for detection
+    
+    // Frame tracking for debugging
+    private var frameCount = 0L
+    private var lastFrameLogTime = 0L
 
     override fun startCamera(config: CameraConfig) {
-        Log.d(TAG, "🚀 Starting internal camera with config: $config")
+        Log.d(TAG, "🚀 Starting internal camera in NO-PREVIEW mode (config: $config)")
         
         this.currentConfig = config
         
@@ -81,7 +85,6 @@ class InternalCameraImpl(
             
             // Clear references
             cameraProvider = null
-            preview = null
             imageAnalyzer = null
             videoCapture = null
             camera = null
@@ -164,7 +167,7 @@ class InternalCameraImpl(
                 setupUseCases()
                 bindUseCases()
                 
-                Log.d(TAG, "CameraX provider set up successfully")
+                Log.i(TAG, "✅ Internal camera opened successfully in NO-PREVIEW mode")
                 cameraStateListener?.onCameraOpened()
                 
             } catch (e: Exception) {
@@ -177,10 +180,7 @@ class InternalCameraImpl(
     private fun setupUseCases() {
         val config = currentConfig ?: CameraConfig()
         
-        // Preview use case
-        preview = Preview.Builder()
-            .setTargetAspectRatio(AspectRatio.RATIO_4_3)
-            .build()
+        // Preview use case removed - not needed for detection/recording only (saves RAM)
         
         // Image analysis for frame callbacks (if enabled)
         if (config.enableDetectionFrames) {
@@ -205,7 +205,7 @@ class InternalCameraImpl(
             .build()
         videoCapture = VideoCapture.withOutput(recorder)
         
-        Log.d(TAG, "Use cases set up: preview=${preview != null}, " +
+        Log.d(TAG, "Use cases set up (no preview): " +
                 "imageAnalyzer=${imageAnalyzer != null}, videoCapture=${videoCapture != null}")
     }
 
@@ -221,9 +221,8 @@ class InternalCameraImpl(
             // Unbind all use cases before rebinding
             provider.unbindAll()
             
-            // Build use cases list
+            // Build use cases list (no preview to save RAM)
             val useCases = mutableListOf<UseCase>().apply {
-                preview?.let { add(it) }
                 imageAnalyzer?.let { add(it) }
                 videoCapture?.let { add(it) }
             }
@@ -247,6 +246,8 @@ class InternalCameraImpl(
 
     private fun processDetectionFrame(imageProxy: ImageProxy) {
         try {
+            frameCount++
+            
             // Initialize detection bitmap buffer if needed (same as detection_test)
             if (!::detectionBitmapBuffer.isInitialized) {
                 detectionBitmapBuffer = Bitmap.createBitmap(
@@ -254,7 +255,18 @@ class InternalCameraImpl(
                     imageProxy.height,
                     Bitmap.Config.ARGB_8888
                 )
-                Log.d(TAG, "Detection bitmap buffer initialized: ${imageProxy.width}x${imageProxy.height}")
+                Log.i(TAG, "🎉 First internal frame! Buffer initialized: ${imageProxy.width}x${imageProxy.height} (NO-PREVIEW mode)")
+            }
+            
+            // Log every 30 frames to confirm flow
+            if (frameCount % 30 == 0L) {
+                val currentTime = System.currentTimeMillis()
+                val timeDiff = if (lastFrameLogTime > 0) currentTime - lastFrameLogTime else 0
+                val fps = if (timeDiff > 0) (30 * 1000.0 / timeDiff) else 0.0
+                
+                Log.d(TAG, "📊 Internal Frame Flow [NO-PREVIEW]: #$frameCount | ${imageProxy.width}x${imageProxy.height} | " +
+                      "FPS: %.1f".format(fps))
+                lastFrameLogTime = currentTime
             }
             
             // Copy out RGB bits to the shared bitmap buffer (detection_test pattern)
