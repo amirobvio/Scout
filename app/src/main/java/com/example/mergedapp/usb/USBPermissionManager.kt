@@ -12,9 +12,18 @@ import android.util.Log
 import androidx.core.content.ContextCompat
 
 /**
- * USB Permission Manager
- * Handles USB device detection and permission requests
- * Based on patterns from usb_22 project
+ * USB Device Type enumeration for different device categories
+ */
+enum class USBDeviceType {
+    UVC_CAMERA,
+    RADAR_SENSOR,
+    UNKNOWN
+}
+
+/**
+ * Enhanced USB Permission Manager
+ * Handles USB device detection and permission requests for cameras and radar sensors
+ * Based on patterns from usb_22 project with radar support added
  */
 class USBPermissionManager(
     private val context: Context,
@@ -23,17 +32,46 @@ class USBPermissionManager(
     
     companion object {
         private const val TAG = "USBPermissionManager"
-        private const val ACTION_USB_PERMISSION = "com.example.mergedapp.USB_PERMISSION"
+        private const val ACTION_USB_PERMISSION = "com.example.mergedapp.UNIFIED_USB_PERMISSION"
+        
+        // Radar sensor constants (from radar_demo)
+        private const val RADAR_VID = 1419  // OPS7243A (IFX CDC)
+        private const val RADAR_PID = 88
     }
     
     private val _usbManager: UsbManager = context.getSystemService(Context.USB_SERVICE) as UsbManager
     private var isReceiverRegistered = false
     
+    /**
+     * Determine device type based on VID/PID and device class
+     */
+    private fun getDeviceType(device: UsbDevice): USBDeviceType {
+        return when {
+            // Radar sensor detection (exact VID/PID match)
+            device.vendorId == RADAR_VID && device.productId == RADAR_PID -> {
+                USBDeviceType.RADAR_SENSOR
+            }
+            // UVC camera detection (device class based)
+            device.deviceClass == 239 || device.deviceClass == 14 -> {
+                USBDeviceType.UVC_CAMERA
+            }
+            else -> USBDeviceType.UNKNOWN
+        }
+    }
+    
+    /**
+     * Check if device should be handled by this manager
+     */
+    private fun shouldHandleDevice(device: UsbDevice): Boolean {
+        val deviceType = getDeviceType(device)
+        return deviceType == USBDeviceType.UVC_CAMERA || deviceType == USBDeviceType.RADAR_SENSOR
+    }
+    
     interface USBPermissionListener {
-        fun onPermissionGranted(device: UsbDevice)
-        fun onPermissionDenied(device: UsbDevice)
-        fun onUsbDeviceAttached(device: UsbDevice)
-        fun onUsbDeviceDetached(device: UsbDevice)
+        fun onPermissionGranted(device: UsbDevice, deviceType: USBDeviceType)
+        fun onPermissionDenied(device: UsbDevice, deviceType: USBDeviceType)
+        fun onUsbDeviceAttached(device: UsbDevice, deviceType: USBDeviceType)
+        fun onUsbDeviceDetached(device: UsbDevice, deviceType: USBDeviceType)
     }
     
     private val usbReceiver = object : BroadcastReceiver() {
@@ -52,12 +90,13 @@ class USBPermissionManager(
                         }
                         
                         device?.let {
+                            val deviceType = getDeviceType(device)
                             if (intent.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false)) {
-                                Log.d(TAG, "✅ USB permission granted for device: ${device.deviceName}")
-                                listener.onPermissionGranted(device)
+                                Log.d(TAG, "✅ USB permission granted for device: ${device.deviceName} (Type: $deviceType)")
+                                listener.onPermissionGranted(device, deviceType)
                             } else {
-                                Log.w(TAG, "❌ USB permission denied for device: ${device.deviceName}")
-                                listener.onPermissionDenied(device)
+                                Log.w(TAG, "❌ USB permission denied for device: ${device.deviceName} (Type: $deviceType)")
+                                listener.onPermissionDenied(device, deviceType)
                             }
                         }
                     }
@@ -71,9 +110,10 @@ class USBPermissionManager(
                     }
                     
                     device?.let {
-                        Log.d(TAG, "USB device attached: ${device.deviceName}")
-                        if (isUVCCamera(device)) {
-                            listener.onUsbDeviceAttached(device)
+                        val deviceType = getDeviceType(device)
+                        Log.d(TAG, "USB device attached: ${device.deviceName} (Type: $deviceType)")
+                        if (shouldHandleDevice(device)) {
+                            listener.onUsbDeviceAttached(device, deviceType)
                         }
                     }
                 }
@@ -86,9 +126,10 @@ class USBPermissionManager(
                     }
                     
                     device?.let {
-                        Log.d(TAG, "USB device detached: ${device.deviceName}")
-                        if (isUVCCamera(device)) {
-                            listener.onUsbDeviceDetached(device)
+                        val deviceType = getDeviceType(device)
+                        Log.d(TAG, "USB device detached: ${device.deviceName} (Type: $deviceType)")
+                        if (shouldHandleDevice(device)) {
+                            listener.onUsbDeviceDetached(device, deviceType)
                         }
                     }
                 }
@@ -150,7 +191,21 @@ class USBPermissionManager(
      * Get all connected UVC camera devices
      */
     fun getConnectedCameras(): List<UsbDevice> {
-        return getConnectedDevices().filter { isUVCCamera(it) }
+        return getConnectedDevices().filter { getDeviceType(it) == USBDeviceType.UVC_CAMERA }
+    }
+    
+    /**
+     * Get all connected radar sensor devices
+     */
+    fun getConnectedRadarSensors(): List<UsbDevice> {
+        return getConnectedDevices().filter { getDeviceType(it) == USBDeviceType.RADAR_SENSOR }
+    }
+    
+    /**
+     * Get all connected devices of a specific type
+     */
+    fun getConnectedDevices(deviceType: USBDeviceType): List<UsbDevice> {
+        return getConnectedDevices().filter { getDeviceType(it) == deviceType }
     }
     
     /**
@@ -165,8 +220,9 @@ class USBPermissionManager(
      */
     fun requestPermission(device: UsbDevice) {
         if (hasPermission(device)) {
-            Log.d(TAG, "Permission already granted for: ${device.deviceName}")
-            listener.onPermissionGranted(device)
+            val deviceType = getDeviceType(device)
+            Log.d(TAG, "Permission already granted for: ${device.deviceName} (Type: $deviceType)")
+            listener.onPermissionGranted(device, deviceType)
             return
         }
         
@@ -188,19 +244,20 @@ class USBPermissionManager(
     }
     
     /**
-     * Check and request permissions for all connected UVC cameras
+     * Check and request permissions for all connected supported devices (cameras and radar)
      */
     fun checkAndRequestPermissions() {
-        val cameras = getConnectedCameras()
-        Log.d(TAG, "Checking permissions for ${cameras.size} UVC cameras")
+        val allSupportedDevices = getConnectedDevices().filter { shouldHandleDevice(it) }
+        Log.d(TAG, "Checking permissions for ${allSupportedDevices.size} supported devices")
         
-        for (device in cameras) {
+        for (device in allSupportedDevices) {
+            val deviceType = getDeviceType(device)
             if (!hasPermission(device)) {
                 requestPermission(device)
                 return // Request one at a time
             } else {
-                Log.d(TAG, "✅ Permission already granted for: ${device.productName ?: device.deviceName}")
-                listener.onPermissionGranted(device)
+                Log.d(TAG, "✅ Permission already granted for: ${device.productName ?: device.deviceName} (Type: $deviceType)")
+                listener.onPermissionGranted(device, deviceType)
             }
         }
     }

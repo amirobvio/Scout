@@ -17,6 +17,8 @@ import com.example.mergedapp.camera.*
 import com.example.mergedapp.detection.DetectionBasedRecorder
 import com.example.mergedapp.detection.DetectionStats
 import com.example.mergedapp.usb.USBPermissionManager
+import com.example.mergedapp.usb.USBDeviceType
+import com.example.mergedapp.radar.*
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -24,7 +26,9 @@ import java.util.*
 
 class DetectionBasedRecordingTestActivity : AppCompatActivity(), 
     USBPermissionManager.USBPermissionListener,
-    DetectionBasedRecorder.RecordingStateListener {
+    DetectionBasedRecorder.RecordingStateListener,
+    RadarDataListener, // TODO: See if we should have just one listening contract from radar side e.g. RadarListener
+    RadarStateListener {
     
     companion object {
         private const val TAG = "DetectionRecordingTest"
@@ -52,6 +56,14 @@ class DetectionBasedRecordingTestActivity : AppCompatActivity(),
     private var detectionRecorder: DetectionBasedRecorder? = null
     private var statsUpdateHandler: Handler? = null
     private var statsUpdateRunnable: Runnable? = null
+    
+    // Radar sensor
+    // TODO: probably, we are getting more than required data stats 
+    private var radarSensor: OneDimensionalRadarImpl? = null
+    private var lastRadarValue: Float = 0.0f
+    private var lastRadarUnit: String = ""
+    private var lastRadarTimestamp: String = "--:--:--.---"
+    private var isRadarConnected = false
     
     // State tracking
     private var isSystemReady = false
@@ -143,7 +155,7 @@ class DetectionBasedRecordingTestActivity : AppCompatActivity(),
         
         // Stats section
         statsText = TextView(this).apply {
-            text = "📊 Detection Statistics:\n\n🔌 USB Camera:\nFrames: 0 | FPS: 0.0 | Non-Detections: 0 | Status: ⚪ WAITING\n\n📱 Internal Camera:\nFrames: 0 | FPS: 0.0 | Non-Detections: 0 | Status: ⚪ WAITING"
+            text = "📊 System Status:\n\n🔌 USB Camera:\nFrames: 0 | FPS: 0.0 | Non-Detections: 0 | Status: ⚪ WAITING\n\n📱 Internal Camera:\nFrames: 0 | FPS: 0.0 | Non-Detections: 0 | Status: ⚪ WAITING\n\n📡 Radar Sensor:\nSpeed: -- | Last Reading: --:--:--.--- | Status: 🔴 DISCONNECTED"
             textSize = 14f
             setTextColor(0xFF81C784.toInt())
             setBackgroundColor(0xFF1B5E20.toInt())
@@ -275,6 +287,7 @@ class DetectionBasedRecordingTestActivity : AppCompatActivity(),
         statsUpdateHandler?.postDelayed(statsUpdateRunnable!!, STATS_UPDATE_INTERVAL)
     }
     
+    // NOTE: See when is this called 
     private fun updateStatsDisplay() {
         if (!isSystemReady && !isInternalCameraInitialized) return
         
@@ -285,7 +298,7 @@ class DetectionBasedRecordingTestActivity : AppCompatActivity(),
             
             runOnUiThread {
                 statsText?.text = buildString {
-                    append("📊 Detection Statistics:\n\n")
+                    append("📊 System Status:\n\n")
                     
                     // USB Camera stats
                     append("🔌 USB Camera:\n")
@@ -299,7 +312,18 @@ class DetectionBasedRecordingTestActivity : AppCompatActivity(),
                     append("Frames: ${stats.internalFramesProcessed} | ")
                     append("FPS: ${String.format("%.1f", internalFps)} | ")
                     append("Non-Detections: ${stats.internalConsecutiveNonDetections} | ")
-                    append("Status: ${if (stats.isInternalRecording) "🔴 RECORDING" else "⚪ WAITING"}")
+                    append("Status: ${if (stats.isInternalRecording) "🔴 RECORDING" else "⚪ WAITING"}\n\n")
+                    
+                    // Radar Sensor stats
+                    append("📡 Radar Sensor:\n")
+                    append("Speed: ${if (lastRadarValue != 0.0f) String.format("%.1f", lastRadarValue) else "--"} ${lastRadarUnit} | ")
+                    append("Last Reading: $lastRadarTimestamp | ")
+                    val radarStatus = when {
+                        radarSensor?.isReading() == true -> "🟢 ACTIVE"
+                        isRadarConnected -> "⚪ READY"
+                        else -> "🔴 DISCONNECTED"
+                    }
+                    append("Status: $radarStatus")
                 }
             }
         }
@@ -359,38 +383,75 @@ class DetectionBasedRecordingTestActivity : AppCompatActivity(),
     }
     
     // USBPermissionManager.USBPermissionListener implementation
-    override fun onPermissionGranted(device: UsbDevice) {
-        Log.d(TAG, logFormat("onPermissionGranted", "✅ USB permission granted for: ${device.deviceName}"))
-        updateStatus("✅ USB Permission Granted\n🔄 Initializing detection system...")
-        addLogMessage("USB permission granted for ${device.productName ?: device.deviceName}")
+    override fun onPermissionGranted(device: UsbDevice, deviceType: USBDeviceType) {
+        Log.d(TAG, logFormat("onPermissionGranted", "✅ USB permission granted for: ${device.deviceName} (Type: $deviceType)"))
         
-        currentUsbDevice = device
-        usbPermissionManager.logDeviceInfo(device)
-        
-        initializeDetectionSystem(device)
+        when (deviceType) {
+            USBDeviceType.UVC_CAMERA -> {
+                updateStatus("✅ USB Camera Permission Granted\n🔄 Initializing detection system...")
+                addLogMessage("USB camera permission granted for ${device.productName ?: device.deviceName}")
+                currentUsbDevice = device
+                usbPermissionManager.logDeviceInfo(device)
+                initializeDetectionSystem(device)
+            }
+            USBDeviceType.RADAR_SENSOR -> {
+                updateStatus("✅ Radar Sensor Permission Granted\n🔄 Initializing radar...")
+                addLogMessage("Radar sensor permission granted for ${device.productName ?: device.deviceName}")
+                usbPermissionManager.logDeviceInfo(device)
+                initializeRadarSensor(device)
+            }
+            USBDeviceType.UNKNOWN -> {
+                Log.w(TAG, logFormat("onPermissionGranted", "Unknown device type, ignoring"))
+            }
+        }
     }
     
-    override fun onPermissionDenied(device: UsbDevice) {
-        Log.w(TAG, logFormat("onPermissionDenied", "❌ USB permission denied for: ${device.deviceName}"))
-        updateStatus("❌ USB Permission Denied\nDetection system cannot start")
-        addLogMessage("USB permission denied - cannot proceed")
-        Toast.makeText(this, "USB permission denied - detection won't work", Toast.LENGTH_LONG).show()
+    override fun onPermissionDenied(device: UsbDevice, deviceType: USBDeviceType) {
+        Log.w(TAG, logFormat("onPermissionDenied", "❌ USB permission denied for: ${device.deviceName} (Type: $deviceType)"))
+        val deviceName = when (deviceType) {
+            USBDeviceType.UVC_CAMERA -> "USB camera"
+            USBDeviceType.RADAR_SENSOR -> "radar sensor"
+            USBDeviceType.UNKNOWN -> "unknown device"
+        }
+        updateStatus("❌ $deviceName Permission Denied")
+        addLogMessage("$deviceName permission denied")
+        Toast.makeText(this, "$deviceName permission denied", Toast.LENGTH_LONG).show()
     }
     
-    override fun onUsbDeviceAttached(device: UsbDevice) {
-        Log.d(TAG, logFormat("onUsbDeviceAttached", "🔌 USB camera attached: ${device.deviceName}"))
-        addLogMessage("USB camera attached: ${device.productName ?: device.deviceName}")
+    override fun onUsbDeviceAttached(device: UsbDevice, deviceType: USBDeviceType) {
+        val deviceName = when (deviceType) {
+            USBDeviceType.UVC_CAMERA -> "USB camera"
+            USBDeviceType.RADAR_SENSOR -> "radar sensor"
+            USBDeviceType.UNKNOWN -> "unknown device"
+        }
+        Log.d(TAG, logFormat("onUsbDeviceAttached", "🔌 $deviceName attached: ${device.deviceName}"))
+        addLogMessage("$deviceName attached: ${device.productName ?: device.deviceName}")
         usbPermissionManager.requestPermission(device)
     }
     
-    override fun onUsbDeviceDetached(device: UsbDevice) {
-        Log.d(TAG, logFormat("onUsbDeviceDetached", "🔌 USB camera detached: ${device.deviceName}"))
-        addLogMessage("USB camera detached")
+    override fun onUsbDeviceDetached(device: UsbDevice, deviceType: USBDeviceType) {
+        val deviceName = when (deviceType) {
+            USBDeviceType.UVC_CAMERA -> "USB camera"
+            USBDeviceType.RADAR_SENSOR -> "radar sensor"
+            USBDeviceType.UNKNOWN -> "unknown device"
+        }
+        Log.d(TAG, logFormat("onUsbDeviceDetached", "🔌 $deviceName detached: ${device.deviceName}"))
+        addLogMessage("$deviceName detached")
         
-        if (device == currentUsbDevice) {
-            updateStatus("📷 USB Camera Disconnected\nDetection system stopped")
-            shutdownDetectionSystem()
-            currentUsbDevice = null
+        when (deviceType) {
+            USBDeviceType.UVC_CAMERA -> {
+                if (device == currentUsbDevice) {
+                    updateStatus("📷 USB Camera Disconnected\nDetection system stopped")
+                    shutdownDetectionSystem()
+                    currentUsbDevice = null
+                }
+            }
+            USBDeviceType.RADAR_SENSOR -> {
+                shutdownRadarSensor()
+            }
+            USBDeviceType.UNKNOWN -> {
+                // Do nothing for unknown devices
+            }
         }
     }
 
@@ -420,6 +481,48 @@ class DetectionBasedRecordingTestActivity : AppCompatActivity(),
             Log.e(TAG, logFormat("initializeDetectionSystem", "Failed to initialize detection system: ${e.message}"), e)
             updateStatus("❌ Detection System Failed\n${e.message}")
             addLogMessage("ERROR: Failed to initialize detection system - ${e.message}")
+        }
+    }
+    
+    private fun initializeRadarSensor(device: UsbDevice) {
+        try {
+            Log.d(TAG, logFormat("initializeRadarSensor", "🎯 Starting radar sensor initialization"))
+            Log.d(TAG, logFormat("initializeRadarSensor", "Device: ${device.productName ?: device.deviceName} (VID=${device.vendorId}, PID=${device.productId})"))
+            
+            updateStatus("🔄 Initializing Radar Sensor\n${device.productName ?: device.deviceName}")
+            addLogMessage("Initializing radar sensor (VID=${device.vendorId}, PID=${device.productId})...")
+            
+            // Create radar sensor instance
+            radarSensor = OneDimensionalRadarImpl(this, device)
+            Log.d(TAG, logFormat("initializeRadarSensor", "Radar instance created, setting listeners..."))
+            
+            radarSensor?.setRadarDataListener(this)
+
+            radarSensor?.setRadarStateListener(this)
+            Log.d(TAG, logFormat("initializeRadarSensor", "State listener set - connection should initialize now"))
+            
+            Log.d(TAG, logFormat("initializeRadarSensor", "✅ Radar sensor initialization completed"))
+            
+        } catch (e: Exception) {
+            Log.e(TAG, logFormat("initializeRadarSensor", "❌ Failed to initialize radar sensor: ${e.message}"), e)
+            updateStatus("❌ Radar Sensor Failed\n${e.message}")
+            addLogMessage("ERROR: Failed to initialize radar sensor - ${e.message}")
+        }
+    }
+    
+    private fun shutdownRadarSensor() {
+        try {
+            radarSensor?.shutdown()
+            radarSensor = null
+            isRadarConnected = false
+            lastRadarValue = 0.0f
+            lastRadarUnit = ""
+            lastRadarTimestamp = "--:--:--.---"
+            
+            addLogMessage("Radar sensor disconnected")
+            
+        } catch (e: Exception) {
+            Log.e(TAG, logFormat("shutdownRadarSensor", "Error shutting down radar sensor: ${e.message}"), e)
         }
     }
     
@@ -577,11 +680,58 @@ class DetectionBasedRecordingTestActivity : AppCompatActivity(),
         }
     }
     
+    // RadarDataListener implementation
+    override fun onRadarDataReceived(value: Float, unit: String, timestamp: Long) {
+        runOnUiThread {
+            lastRadarValue = value
+            lastRadarUnit = unit
+            lastRadarTimestamp = SimpleDateFormat("HH:mm:ss.SSS", Locale.getDefault()).format(Date(timestamp))
+            
+            addLogMessage("📡 Radar reading: $value $unit")
+            Log.d(TAG, logFormat("onRadarDataReceived", "Radar data: $value $unit at $lastRadarTimestamp"))
+        }
+    }
+    
+    // RadarStateListener implementation - 3 functions 
+    override fun onRadarConnected() {
+        Log.d(TAG, logFormat("onRadarConnected", "🎯 Radar connected callback received"))
+        runOnUiThread {
+            isRadarConnected = true
+            addLogMessage("📡 Radar sensor connected successfully")
+            updateStatus("✅ Radar Sensor Connected\n🎯 Starting readings...")
+            
+            // Start reading automatically when connected
+            radarSensor?.startReading()
+            Log.d(TAG, logFormat("onRadarConnected", "Radar reading started"))
+        }
+    }
+    
+    override fun onRadarDisconnected() {
+        Log.d(TAG, logFormat("onRadarDisconnected", "🔴 Radar disconnected callback received"))
+        runOnUiThread {
+            isRadarConnected = false
+            addLogMessage("📡 Radar sensor disconnected")
+            updateStatus("🔴 Radar Sensor Disconnected")
+        }
+    }
+    
+    override fun onRadarError(error: String) {
+        Log.e(TAG, logFormat("onRadarError", "❌ Radar error callback: $error"))
+        runOnUiThread {
+            addLogMessage("❌ Radar error: $error")
+            updateStatus("❌ Radar Error\n$error")
+            isRadarConnected = false
+        }
+    }
+    
     override fun onDestroy() {
         Log.d(TAG, logFormat("onDestroy", "Activity destroying"))
         
         // Stop stats updates
         statsUpdateHandler?.removeCallbacksAndMessages(null)
+        
+        // Shutdown radar sensor
+        shutdownRadarSensor()
         
         // Shutdown detection system
         shutdownDetectionSystem()

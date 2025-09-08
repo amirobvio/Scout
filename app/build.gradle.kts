@@ -91,6 +91,10 @@ dependencies {
     implementation("org.tensorflow:tensorflow-lite-gpu:2.12.0")
     implementation("org.yaml:snakeyaml:1.29")
     
+    // USB Serial for radar sensor communication
+    implementation("com.github.mik3y:usb-serial-for-android:3.5.1")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
+    
     
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
