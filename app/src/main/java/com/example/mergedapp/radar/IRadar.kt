@@ -13,6 +13,11 @@ interface IRadar {
     fun isAvailable(): Boolean
     fun setRadarDataListener(listener: RadarDataListener?)
     fun setRadarStateListener(listener: RadarStateListener?)
+    
+    // Data saving functionality
+    fun startDataSaving(customFilePath: String? = null)
+    fun stopDataSaving()
+    fun isDataSavingEnabled(): Boolean
 }
 
 enum class RadarType {

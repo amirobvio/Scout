@@ -1,6 +1,7 @@
 package com.example.mergedapp.test
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.hardware.usb.UsbDevice
 import android.os.Bundle
@@ -19,6 +20,7 @@ import com.example.mergedapp.detection.DetectionStats
 import com.example.mergedapp.usb.USBPermissionManager
 import com.example.mergedapp.usb.USBDeviceType
 import com.example.mergedapp.radar.*
+import com.example.mergedapp.utils.FilePermissionManager
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -47,6 +49,7 @@ class DetectionBasedRecordingTestActivity : AppCompatActivity(),
     private var statusText: TextView? = null
     private var statsText: TextView? = null
     private var logText: TextView? = null
+    private var radarDataButton: Button? = null
     
     // USB and camera management
     private lateinit var usbPermissionManager: USBPermissionManager
@@ -64,6 +67,7 @@ class DetectionBasedRecordingTestActivity : AppCompatActivity(),
     private var lastRadarUnit: String = ""
     private var lastRadarTimestamp: String = "--:--:--.---"
     private var isRadarConnected = false
+    private var isRadarDataSaving = false
     
     // State tracking
     private var isSystemReady = false
@@ -168,6 +172,23 @@ class DetectionBasedRecordingTestActivity : AppCompatActivity(),
             }
         }
         
+        // Radar Data Saving Button
+        radarDataButton = Button(this).apply {
+            text = "📡 Start Radar Data Saving"
+            textSize = 16f
+            setTextColor(0xFFFFFFFF.toInt())
+            setBackgroundColor(0xFF2196F3.toInt())
+            setPadding(20, 15, 20, 15)
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                bottomMargin = 20
+            }
+            setOnClickListener { toggleRadarDataSaving() }
+            isEnabled = false // Initially disabled until radar is connected
+        }
+        
         // Log section header
         val logHeader = TextView(this).apply {
             text = "📝 Recording Events Log:"
@@ -197,6 +218,7 @@ class DetectionBasedRecordingTestActivity : AppCompatActivity(),
         statusContainer?.addView(titleText)
         statusContainer?.addView(statusText)
         statusContainer?.addView(statsText)
+        statusContainer?.addView(radarDataButton)
         statusContainer?.addView(logHeader)
         statusContainer?.addView(logText)
         
@@ -526,6 +548,58 @@ class DetectionBasedRecordingTestActivity : AppCompatActivity(),
         }
     }
     
+    private fun toggleRadarDataSaving() {
+        val radar = radarSensor
+        if (radar == null) {
+            addLogMessage("❌ Radar sensor not connected")
+            return
+        }
+        
+        if (isRadarDataSaving) {
+            // Stop data saving
+            try {
+                radar.stopDataSaving()
+                isRadarDataSaving = false
+                updateRadarDataButton()
+                addLogMessage("🛑 Radar data saving stopped")
+            } catch (e: Exception) {
+                Log.e(TAG, logFormat("toggleRadarDataSaving", "Error stopping radar data saving: ${e.message}"), e)
+                addLogMessage("❌ Error stopping radar data saving: ${e.message}")
+            }
+        } else {
+            // Start data saving
+            if (!FilePermissionManager.hasStoragePermissions(this)) {
+                addLogMessage("⚠️ Requesting storage permissions for radar data saving...")
+                FilePermissionManager.requestStoragePermissions(this)
+                return
+            }
+            
+            try {
+                val customPath = "/storage/emulated/0/SpeedingApp/Radar"
+                radar.startDataSaving(customPath)
+                isRadarDataSaving = true
+                updateRadarDataButton()
+                addLogMessage("✅ Radar data saving started to: $customPath")
+            } catch (e: Exception) {
+                Log.e(TAG, logFormat("toggleRadarDataSaving", "Error starting radar data saving: ${e.message}"), e)
+                addLogMessage("❌ Error starting radar data saving: ${e.message}")
+            }
+        }
+    }
+    
+    private fun updateRadarDataButton() {
+        radarDataButton?.apply {
+            if (isRadarDataSaving) {
+                text = "🛑 Stop Radar Data Saving"
+                setBackgroundColor(0xFFF44336.toInt()) // Red
+            } else {
+                text = "📡 Start Radar Data Saving"
+                setBackgroundColor(0xFF2196F3.toInt()) // Blue
+            }
+            isEnabled = isRadarConnected
+        }
+    }
+    
     private fun shutdownDetectionSystem() {
         isSystemReady = false
         isInternalCameraInitialized = false
@@ -677,6 +751,65 @@ class DetectionBasedRecordingTestActivity : AppCompatActivity(),
                     Toast.makeText(this, "Some permissions denied. Functionality may be limited.", Toast.LENGTH_LONG).show()
                 }
             }
+            FilePermissionManager.STORAGE_PERMISSION_REQUEST_CODE -> {
+                // Handle file permission results for radar data saving
+                FilePermissionManager.handlePermissionResult(
+                    requestCode, permissions, grantResults,
+                    onPermissionGranted = {
+                        addLogMessage("✅ Storage permissions granted - you can now save radar data")
+                        // Try to start radar data saving again
+                        toggleRadarDataSaving()
+                    },
+                    onPermissionDenied = {
+                        addLogMessage("❌ Storage permissions denied - radar data will save to internal storage")
+                        // Try to start with fallback to internal storage
+                        val radar = radarSensor
+                        if (radar != null && !isRadarDataSaving) {
+                            try {
+                                radar.startDataSaving() // Will use internal storage
+                                isRadarDataSaving = true
+                                updateRadarDataButton()
+                                addLogMessage("✅ Radar data saving started (internal storage)")
+                            } catch (e: Exception) {
+                                addLogMessage("❌ Failed to start radar data saving: ${e.message}")
+                            }
+                        }
+                    }
+                )
+            }
+        }
+    }
+    
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        
+        when (requestCode) {
+            FilePermissionManager.MANAGE_EXTERNAL_STORAGE_REQUEST_CODE -> {
+                // Handle MANAGE_EXTERNAL_STORAGE result for Android 11+
+                FilePermissionManager.handlePermissionResult(
+                    requestCode, emptyArray(), intArrayOf(),
+                    onPermissionGranted = {
+                        addLogMessage("✅ File management permissions granted - you can now save radar data")
+                        // Try to start radar data saving again
+                        toggleRadarDataSaving()
+                    },
+                    onPermissionDenied = {
+                        addLogMessage("❌ File management permissions denied - radar data will save to internal storage")
+                        // Try to start with fallback to internal storage
+                        val radar = radarSensor
+                        if (radar != null && !isRadarDataSaving) {
+                            try {
+                                radar.startDataSaving() // Will use internal storage
+                                isRadarDataSaving = true
+                                updateRadarDataButton()
+                                addLogMessage("✅ Radar data saving started (internal storage)")
+                            } catch (e: Exception) {
+                                addLogMessage("❌ Failed to start radar data saving: ${e.message}")
+                            }
+                        }
+                    }
+                )
+            }
         }
     }
     
@@ -699,6 +832,7 @@ class DetectionBasedRecordingTestActivity : AppCompatActivity(),
             isRadarConnected = true
             addLogMessage("📡 Radar sensor connected successfully")
             updateStatus("✅ Radar Sensor Connected\n🎯 Starting readings...")
+            updateRadarDataButton()
             
             // Start reading automatically when connected
             radarSensor?.startReading()
@@ -710,8 +844,10 @@ class DetectionBasedRecordingTestActivity : AppCompatActivity(),
         Log.d(TAG, logFormat("onRadarDisconnected", "🔴 Radar disconnected callback received"))
         runOnUiThread {
             isRadarConnected = false
+            isRadarDataSaving = false
             addLogMessage("📡 Radar sensor disconnected")
             updateStatus("🔴 Radar Sensor Disconnected")
+            updateRadarDataButton()
         }
     }
     

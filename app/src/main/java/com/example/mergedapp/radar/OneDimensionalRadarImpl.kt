@@ -6,7 +6,12 @@ import android.hardware.usb.UsbManager
 import android.util.Log
 import com.hoho.android.usbserial.driver.UsbSerialPort
 import com.hoho.android.usbserial.driver.UsbSerialProber
+import com.example.mergedapp.utils.FilePermissionManager
 import kotlinx.coroutines.*
+import org.json.JSONArray
+import org.json.JSONObject
+import java.io.File
+import java.io.FileWriter
 import java.nio.charset.Charset
 import java.text.SimpleDateFormat
 import java.util.*
@@ -18,6 +23,8 @@ import java.util.regex.Pattern
  * Based on radar_demo implementation for OPS7243A (IFX CDC) radar sensor
  * VID=1419 (0x058B), PID=88 (0x0058)
  */
+
+ 
 class OneDimensionalRadarImpl(
     private val context: Context,
     private val device: UsbDevice
@@ -25,10 +32,7 @@ class OneDimensionalRadarImpl(
     
     companion object {
         private const val TAG = "OneDimensionalRadar"
-        
-        // OPS7243A (IFX CDC): VID=1419 (0x058B), PID=88 (0x0058)
-        const val RADAR_VID = 1419
-        const val RADAR_PID = 88
+        private const val READINGS_PER_HOUR = 3600 * 4 // 4 readings per second for 1 hour
         
         // Helper function for consistent logging format
         private fun logFormat(functionName: String, message: String): String {
@@ -59,13 +63,20 @@ class OneDimensionalRadarImpl(
     private var isConnected = false
     private var isCurrentlyReading = false
     
+    // Data saving
+    private var isDataSavingEnabled = false
+    private var readingCounter = 0
+    private var currentDataArray = JSONArray()
+    private var customSavePath: String? = null
+    private val fileTimeFmt = SimpleDateFormat("yyyy-MM-dd_HH-mm-ss", Locale.getDefault())
+    
     init {
         Log.d(TAG, logFormat("init", "Radar instance created for device: ${device.productName ?: device.deviceName}"))
         // Connection will be initialized after listeners are set
     }
     
     private fun initializeConnection() {
-        Log.d(TAG, logFormat("initializeConnection", "Starting radar connection initialization"))
+
         Log.d(TAG, logFormat("initializeConnection", "Device: VID=${device.vendorId}, PID=${device.productId}"))
         
         try {
@@ -99,6 +110,7 @@ class OneDimensionalRadarImpl(
             
             // Configure serial port
             port.open(connection)
+            //TODO: Check these params
             port.setParameters(57600, 8, UsbSerialPort.STOPBITS_1, UsbSerialPort.PARITY_NONE)
             port.dtr = true
             port.rts = true
@@ -160,7 +172,7 @@ class OneDimensionalRadarImpl(
                             .filter { it.isNotBlank() }
                             .forEach { line ->
                                 Log.v(TAG, logFormat("startReading", "Raw data: [$formattedTime] $line"))
-                                processRadarLine(line, timestamp, formattedTime)
+                                processRadarLine(line, timestamp)
                             }
                     }
                 } catch (e: Exception) {
@@ -213,7 +225,7 @@ class OneDimensionalRadarImpl(
         }
     }
     
-    private suspend fun processRadarLine(line: String, timestamp: Long, formattedTime: String) {
+    private suspend fun processRadarLine(line: String, timestamp: Long) {
         val matcher = valueRegex.matcher(line)
         if (!matcher.find()) {
             // No numeric value found, skip
@@ -226,6 +238,11 @@ class OneDimensionalRadarImpl(
         val value = valueStr.toFloatOrNull() ?: return
         
         Log.d(TAG, logFormat("processRadarLine", "Parsed radar data: $value $unitStr"))
+        
+        // Save data if enabled
+        if (isDataSavingEnabled) {
+            saveRadarData(value, timestamp)
+        }
         
         // Notify listener on main thread
         withContext(Dispatchers.Main) {
@@ -247,6 +264,114 @@ class OneDimensionalRadarImpl(
         }
     }
     
+    // Data saving implementation
+    override fun startDataSaving(customFilePath: String?) {
+        if (isDataSavingEnabled) {
+            Log.w(TAG, logFormat("startDataSaving", "Data saving already enabled"))
+            return
+        }
+        
+        // Use FilePermissionManager to get the best available directory
+        val saveDirectory = FilePermissionManager.getBestSaveDirectory(context, customFilePath)
+        customSavePath = saveDirectory.absolutePath
+        
+        // Check if we have storage permissions
+        if (!FilePermissionManager.hasStoragePermissions(context) && customFilePath != null) {
+            Log.w(TAG, logFormat("startDataSaving", "Storage permissions not granted. Custom path may not be accessible."))
+            Log.w(TAG, logFormat("startDataSaving", "Consider requesting permissions using FilePermissionManager.requestStoragePermissions()"))
+        }
+        
+        isDataSavingEnabled = true
+        readingCounter = 0
+        currentDataArray = JSONArray()
+        
+        Log.d(TAG, logFormat("startDataSaving", "Data saving started, saving to: ${saveDirectory.absolutePath}"))
+        Log.d(TAG, logFormat("startDataSaving", "Storage permissions granted: ${FilePermissionManager.hasStoragePermissions(context)}"))
+    }
+    
+    override fun stopDataSaving() {
+        if (!isDataSavingEnabled) {
+            Log.w(TAG, logFormat("stopDataSaving", "Data saving already disabled"))
+            return
+        }
+        
+        // Save any remaining data before stopping
+        if (currentDataArray.length() > 0) {
+            saveCurrentDataToFile()
+        }
+        
+        isDataSavingEnabled = false
+        readingCounter = 0
+        currentDataArray = JSONArray()
+        Log.d(TAG, logFormat("stopDataSaving", "Data saving stopped"))
+    }
+    
+    override fun isDataSavingEnabled(): Boolean = isDataSavingEnabled
+    
+    private fun saveRadarData(value: Float, timestamp: Long) {
+        try {
+            val dataPoint = JSONObject().apply {
+                put("timestamp", timestamp)
+                put("radar_reading", value)
+            }
+            
+            currentDataArray.put(dataPoint)
+            readingCounter++
+            
+            // Save file when we reach the limit (1 hour worth of data)
+            if (readingCounter >= READINGS_PER_HOUR) {
+                saveCurrentDataToFile()
+                // Reset for next hour
+                currentDataArray = JSONArray()
+                readingCounter = 0
+            }
+            
+        } catch (e: Exception) {
+            Log.e(TAG, logFormat("saveRadarData", "Error saving data: ${e.message}"), e)
+        }
+    }
+    
+    private fun saveCurrentDataToFile() {
+        try {
+            val timestamp = System.currentTimeMillis()
+            val filename = "radar_data_${fileTimeFmt.format(Date(timestamp))}.json"
+            
+            // Use the directory set in startDataSaving
+            val saveDirectory = File(customSavePath ?: context.filesDir.absolutePath)
+            val file = File(saveDirectory, filename)
+            
+            // Ensure directory exists
+            if (!saveDirectory.exists()) {
+                saveDirectory.mkdirs()
+            }
+            
+            FileWriter(file).use { writer ->
+                writer.write(currentDataArray.toString(2)) // Pretty print with 2-space indentation
+            }
+            
+            Log.d(TAG, logFormat("saveCurrentDataToFile", "Saved ${currentDataArray.length()} readings to ${file.absolutePath}"))
+            
+        } catch (e: Exception) {
+            Log.e(TAG, logFormat("saveCurrentDataToFile", "Error saving file: ${e.message}"), e)
+            
+            // Try fallback to internal storage if external fails
+            try {
+                val timestamp = System.currentTimeMillis()
+                val filename = "radar_data_${fileTimeFmt.format(Date(timestamp))}.json"
+                val fallbackFile = File(context.filesDir, filename)
+                
+                FileWriter(fallbackFile).use { writer ->
+                    writer.write(currentDataArray.toString(2))
+                }
+                
+                Log.d(TAG, logFormat("saveCurrentDataToFile", "Fallback save successful to ${fallbackFile.absolutePath}"))
+                
+            } catch (fallbackException: Exception) {
+                Log.e(TAG, logFormat("saveCurrentDataToFile", "Fallback save also failed: ${fallbackException.message}"), fallbackException)
+            }
+        }
+    }
+
     /**
      * Cleanup resources
      */
@@ -254,6 +379,7 @@ class OneDimensionalRadarImpl(
         Log.d(TAG, logFormat("shutdown", "Shutting down radar"))
         
         stopReading()
+        stopDataSaving()
         
         try {
             serialPort?.close()

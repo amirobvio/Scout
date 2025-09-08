@@ -95,6 +95,13 @@ dependencies {
     implementation("com.github.mik3y:usb-serial-for-android:3.5.1")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
     
+    // HTTP client for file uploads
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    implementation("com.squareup.okhttp3:logging-interceptor:4.12.0")
+    
+    // JSON processing
+    implementation("org.json:json:20231013")
+    
     
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
