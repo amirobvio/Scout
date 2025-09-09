@@ -292,35 +292,82 @@ class USBCameraFragment : CameraFragment(), ICamera {
                 return
             }
             
-            // Let AUSBC handle the path
+            Log.d(TAG, "Starting USB recording (will move to custom path after completion): $outputPath")
+            
+            // AUSBC doesn't support custom output path directly, so we'll move the file after recording
             camera.captureVideoStart(
                 object : com.jiangdg.ausbc.callback.ICaptureCallBack {
                     override fun onBegin() {
-                        Log.d(TAG, "Video recording started")
+                        Log.d(TAG, "USB video recording started (AUSBC default path)")
                         isCurrentlyRecording = true
-                        recordingCallback?.onRecordingStarted("AUSBC_default_path")
+                        recordingCallback?.onRecordingStarted(outputPath) // Report our intended path
                         callback(true, null)
                     }
                     
                     override fun onError(error: String?) {
-                        Log.e(TAG, "Video recording error: $error")
+                        Log.e(TAG, "USB video recording error: $error")
                         isCurrentlyRecording = false
                         recordingCallback?.onRecordingError(error ?: "Recording failed")
                         callback(false, error)
                     }
                     
                     override fun onComplete(path: String?) {
-                        Log.d(TAG, "Video recording completed: $path")
+                        Log.d(TAG, "USB video recording completed at AUSBC path: $path")
                         isCurrentlyRecording = false
                         currentRecordingPath = null
-                        recordingCallback?.onRecordingStopped(path ?: "unknown_path")
+                        
+                        // Move file from AUSBC path to our organized path
+                        moveRecordedFile(path, outputPath)
                     }
                 }
             )
             
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to start recording", e)
+            Log.e(TAG, "Failed to start USB recording", e)
             callback(false, e.message)
+        }
+    }
+    
+    private fun moveRecordedFile(sourceAUSBCPath: String?, targetPath: String) {
+        try {
+            if (sourceAUSBCPath.isNullOrEmpty()) {
+                Log.e(TAG, "AUSBC source path is null or empty, cannot move file")
+                recordingCallback?.onRecordingStopped(targetPath) // Still report our target path
+                return
+            }
+            
+            val sourceFile = File(sourceAUSBCPath)
+            if (!sourceFile.exists()) {
+                Log.e(TAG, "AUSBC recorded file doesn't exist: $sourceAUSBCPath")
+                recordingCallback?.onRecordingStopped(targetPath) // Still report our target path
+                return
+            }
+            
+            // Ensure target directory exists
+            val targetFile = File(targetPath)
+            targetFile.parentFile?.mkdirs()
+            
+            // Move file from AUSBC location to our organized location
+            if (sourceFile.renameTo(targetFile)) {
+                Log.d(TAG, "Successfully moved USB recording from $sourceAUSBCPath to $targetPath")
+                recordingCallback?.onRecordingStopped(targetPath)
+            } else {
+                Log.e(TAG, "Failed to move USB recording from $sourceAUSBCPath to $targetPath")
+                // Fallback: copy file if move fails
+                try {
+                    sourceFile.copyTo(targetFile, overwrite = true)
+                    sourceFile.delete() // Delete original after successful copy
+                    Log.d(TAG, "Successfully copied USB recording from $sourceAUSBCPath to $targetPath")
+                    recordingCallback?.onRecordingStopped(targetPath)
+                } catch (copyException: Exception) {
+                    Log.e(TAG, "Failed to copy USB recording: ${copyException.message}")
+                    recordingCallback?.onRecordingStopped(sourceAUSBCPath) // Use original path as fallback
+                }
+            }
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "Error moving USB recorded file: ${e.message}", e)
+            recordingCallback?.onRecordingStopped(sourceAUSBCPath ?: targetPath)
         }
     }
     

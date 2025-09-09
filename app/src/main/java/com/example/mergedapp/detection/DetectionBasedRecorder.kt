@@ -9,6 +9,7 @@ import android.util.Log
 import androidx.appcompat.app.AppCompatActivity
 import com.example.mergedapp.camera.*
 import com.example.mergedapp.camera.FrameConversionUtils
+import com.example.mergedapp.utils.FilePermissionManager
 import org.tensorflow.lite.examples.objectdetection.config.DetectionConfig
 import org.tensorflow.lite.examples.objectdetection.detectors.DetectionObject
 import java.io.File
@@ -70,6 +71,10 @@ class DetectionBasedRecorder(
     // Detection state tracking
     private val usbConsecutiveNonDetections = AtomicInteger(0)
     private val internalConsecutiveNonDetections = AtomicInteger(0)
+    
+    // Recording timestamp tracking (for camera naming)
+    private val internalRecordingStartTimestamp = AtomicLong(0)
+    private val usbRecordingStartTimestamp = AtomicLong(0)
     
     // USB device management
     private var activityContext: AppCompatActivity? = null
@@ -451,8 +456,62 @@ class DetectionBasedRecorder(
                 }
                 
                 override fun onRecordingStopped(outputPath: String) {
-                    Log.d(TAG, logFormat("startRecordingForCamera", "$cameraType recording stopped: $outputPath"))
-                    recordingListener?.onRecordingStopped(cameraType, outputPath)
+                    var finalOutputPath = outputPath
+                    
+                    // For both USB and internal camera, rename file with end timestamp
+                    if (outputPath.contains("__TEMP.mp4")) {
+                        val endTimestamp = System.currentTimeMillis()
+                        
+                        when (cameraType) {
+                            CameraType.USB -> {
+                                val startTimestamp = usbRecordingStartTimestamp.get()
+                                if (startTimestamp > 0) {
+                                    val tempFile = File(outputPath)
+                                    val finalFilename = "usb_${startTimestamp}__${endTimestamp}.mp4"
+                                    val finalFile = File(tempFile.parent, finalFilename)
+                                    
+                                    try {
+                                        if (tempFile.renameTo(finalFile)) {
+                                            finalOutputPath = finalFile.absolutePath
+                                            Log.d(TAG, logFormat("startRecordingForCamera", "USB camera file renamed to: $finalFilename"))
+                                        } else {
+                                            Log.w(TAG, logFormat("startRecordingForCamera", "Failed to rename USB camera file"))
+                                        }
+                                    } catch (e: Exception) {
+                                        Log.e(TAG, logFormat("startRecordingForCamera", "Error renaming USB camera file: ${e.message}"))
+                                    }
+                                    
+                                    // Reset timestamp
+                                    usbRecordingStartTimestamp.set(0)
+                                }
+                            }
+                            CameraType.INTERNAL -> {
+                                val startTimestamp = internalRecordingStartTimestamp.get()
+                                if (startTimestamp > 0) {
+                                    val tempFile = File(outputPath)
+                                    val finalFilename = "internal_${startTimestamp}__${endTimestamp}.mp4"
+                                    val finalFile = File(tempFile.parent, finalFilename)
+                                    
+                                    try {
+                                        if (tempFile.renameTo(finalFile)) {
+                                            finalOutputPath = finalFile.absolutePath
+                                            Log.d(TAG, logFormat("startRecordingForCamera", "Internal camera file renamed to: $finalFilename"))
+                                        } else {
+                                            Log.w(TAG, logFormat("startRecordingForCamera", "Failed to rename internal camera file"))
+                                        }
+                                    } catch (e: Exception) {
+                                        Log.e(TAG, logFormat("startRecordingForCamera", "Error renaming internal camera file: ${e.message}"))
+                                    }
+                                    
+                                    // Reset timestamp
+                                    internalRecordingStartTimestamp.set(0)
+                                }
+                            }
+                        }
+                    }
+                    
+                    Log.d(TAG, logFormat("startRecordingForCamera", "$cameraType recording stopped: $finalOutputPath"))
+                    recordingListener?.onRecordingStopped(cameraType, finalOutputPath)
                 }
                 
                 override fun onRecordingError(error: String) {
@@ -479,15 +538,28 @@ class DetectionBasedRecorder(
     }
 
     private fun generateOutputPath(cameraType: CameraType, timestamp: Long): String {
-        val cameraPrefix = when (cameraType) {
-            CameraType.USB -> "usb"
-            CameraType.INTERNAL -> "internal"
+        when (cameraType) {
+            CameraType.USB -> {
+                // Use FilePermissionManager to get organized directory structure: SpeedingApp/<datestamp>/usb/
+                val saveDirectory = FilePermissionManager.getOrganizedSaveDirectory(context, "usb")
+                
+                // Store start timestamp for later use in final filename
+                usbRecordingStartTimestamp.set(timestamp)
+                
+                // Generate temporary filename with start timestamp only (will be renamed when recording stops)
+                return "${saveDirectory.absolutePath}/usb_${timestamp}__TEMP.mp4"
+            }
+            CameraType.INTERNAL -> {
+                // Use FilePermissionManager to get organized directory structure: SpeedingApp/<datestamp>/internal/
+                val saveDirectory = FilePermissionManager.getOrganizedSaveDirectory(context, "internal")
+                
+                // Store start timestamp for later use in final filename
+                internalRecordingStartTimestamp.set(timestamp)
+                
+                // Generate temporary filename with start timestamp only (will be renamed when recording stops)
+                return "${saveDirectory.absolutePath}/internal_${timestamp}__TEMP.mp4"
+            }
         }
-        
-        val dateString = java.text.SimpleDateFormat("yyyyMMdd_HHmmss", java.util.Locale.getDefault())
-            .format(java.util.Date(timestamp))
-        
-        return "${android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_MOVIES)}/MergedApp/detection_${cameraPrefix}_${dateString}.mp4"
     }
 
     fun getDetectionStats(): DetectionStats {

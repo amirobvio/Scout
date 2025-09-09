@@ -91,7 +91,32 @@ class FilePermissionManager {
         }
         
         /**
-         * Get the best available directory for saving files
+         * Get the organized save directory with date-stamped folder structure
+         * Structure: SpeedingApp/<datestamp>/{radar,internal,usb}/
+         */
+        fun getOrganizedSaveDirectory(context: Context, subFolder: String): File {
+            val dateStamp = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault())
+                .format(java.util.Date())
+            
+            val basePath = "/storage/emulated/0/SpeedingApp/$dateStamp/$subFolder"
+            val organizedDir = File(basePath)
+            
+            return if (hasStoragePermissions(context)) {
+                if (organizedDir.exists() || organizedDir.mkdirs()) {
+                    Log.d(TAG, "Using organized directory: $basePath")
+                    organizedDir
+                } else {
+                    Log.w(TAG, "Organized directory not accessible, falling back to app directory/$subFolder")
+                    File(getAppDirectory(context), subFolder).apply { mkdirs() }
+                }
+            } else {
+                Log.d(TAG, "No storage permissions, using internal app directory/$subFolder")
+                File(getAppDirectory(context), subFolder).apply { mkdirs() }
+            }
+        }
+
+        /**
+         * Get the best available directory for saving files (legacy method)
          */
         fun getBestSaveDirectory(context: Context, customPath: String? = null): File {
             return when {

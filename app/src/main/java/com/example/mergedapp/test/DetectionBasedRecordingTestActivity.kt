@@ -253,6 +253,16 @@ class DetectionBasedRecordingTestActivity : AppCompatActivity(),
         } else {
             Log.d(TAG, logFormat("requestNecessaryPermissions", "✅ All necessary permissions already granted"))
         }
+        
+        // Also request storage permissions for unified access (radar + internal camera)
+        if (!FilePermissionManager.hasStoragePermissions(this)) {
+            Log.d(TAG, logFormat("requestNecessaryPermissions", "📁 Requesting storage permissions for radar data and internal camera recordings"))
+            addLogMessage("📁 Requesting storage permissions...")
+            FilePermissionManager.requestStoragePermissions(this)
+        } else {
+            Log.d(TAG, logFormat("requestNecessaryPermissions", "✅ Storage permissions already granted"))
+            addLogMessage("✅ Storage permissions already available")
+        }
     }
     
     private fun initializeUSBMonitoring() {
@@ -567,19 +577,12 @@ class DetectionBasedRecordingTestActivity : AppCompatActivity(),
                 addLogMessage("❌ Error stopping radar data saving: ${e.message}")
             }
         } else {
-            // Start data saving
-            if (!FilePermissionManager.hasStoragePermissions(this)) {
-                addLogMessage("⚠️ Requesting storage permissions for radar data saving...")
-                FilePermissionManager.requestStoragePermissions(this)
-                return
-            }
-            
+            // Start data saving (permissions should already be requested at startup)
             try {
-                val customPath = "/storage/emulated/0/SpeedingApp/Radar"
-                radar.startDataSaving(customPath)
+                radar.startDataSaving()  // Uses organized directory structure: SpeedingApp/<datestamp>/radar/
                 isRadarDataSaving = true
                 updateRadarDataButton()
-                addLogMessage("✅ Radar data saving started to: $customPath")
+                addLogMessage("✅ Radar data saving started (organized folder structure)")
             } catch (e: Exception) {
                 Log.e(TAG, logFormat("toggleRadarDataSaving", "Error starting radar data saving: ${e.message}"), e)
                 addLogMessage("❌ Error starting radar data saving: ${e.message}")

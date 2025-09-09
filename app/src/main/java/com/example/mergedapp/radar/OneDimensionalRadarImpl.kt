@@ -271,13 +271,13 @@ class OneDimensionalRadarImpl(
             return
         }
         
-        // Use FilePermissionManager to get the best available directory
-        val saveDirectory = FilePermissionManager.getBestSaveDirectory(context, customFilePath)
+        // Use FilePermissionManager to get organized directory structure: SpeedingApp/<datestamp>/radar/
+        val saveDirectory = FilePermissionManager.getOrganizedSaveDirectory(context, "radar")
         customSavePath = saveDirectory.absolutePath
         
         // Check if we have storage permissions
-        if (!FilePermissionManager.hasStoragePermissions(context) && customFilePath != null) {
-            Log.w(TAG, logFormat("startDataSaving", "Storage permissions not granted. Custom path may not be accessible."))
+        if (!FilePermissionManager.hasStoragePermissions(context)) {
+            Log.w(TAG, logFormat("startDataSaving", "Storage permissions not granted. Using internal storage fallback."))
             Log.w(TAG, logFormat("startDataSaving", "Consider requesting permissions using FilePermissionManager.requestStoragePermissions()"))
         }
         
@@ -312,7 +312,7 @@ class OneDimensionalRadarImpl(
         try {
             val dataPoint = JSONObject().apply {
                 put("timestamp", timestamp)
-                put("radar_reading", value)
+                put("radar_reading", value.toDouble())  // Convert Float to Double for JSONObject compatibility
             }
             
             currentDataArray.put(dataPoint)
