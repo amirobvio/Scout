@@ -1,0 +1,8 @@
+# USB Camera component
+usb_camera_enabled: false
+
+# Internal/Main Camera component  
+internal_camera_enabled: true
+
+# Radar sensor component
+radar_enabled: true

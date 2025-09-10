@@ -9,6 +9,7 @@ import android.util.Log
 import androidx.appcompat.app.AppCompatActivity
 import com.example.mergedapp.camera.*
 import com.example.mergedapp.camera.FrameConversionUtils
+import com.example.mergedapp.config.AppConfigManager
 import com.example.mergedapp.utils.FilePermissionManager
 import org.tensorflow.lite.examples.objectdetection.config.DetectionConfig
 import org.tensorflow.lite.examples.objectdetection.detectors.DetectionObject
@@ -35,14 +36,16 @@ import java.util.concurrent.atomic.AtomicLong
 
 
 class DetectionBasedRecorder(
-    private val context: Context
+    private val context: Context,
+    private val appConfig: AppConfigManager? = null
 ) : DetectionFrameCallback, DetectionModule.DetectionListener, CameraStateListener {
     
     // Alternative constructor for USB device management
     constructor(
         context: Context,
-        activityContext: AppCompatActivity? = null
-    ) : this(context) {
+        activityContext: AppCompatActivity,
+        appConfig: AppConfigManager? = null
+    ) : this(context, appConfig) {
         this.activityContext = activityContext
     }
     
@@ -108,10 +111,17 @@ class DetectionBasedRecorder(
         }
         
         try {
-            // Initialize detection module
-            detectionModule.initialize()
+            // Only initialize detection module if at least one camera is enabled
+            val shouldInitDetection = appConfig?.shouldInitializeDetection() ?: true
+            if (shouldInitDetection) {
+                // Initialize detection module
+                detectionModule.initialize()
+                Log.d(TAG, logFormat("initialize", "Detection module initialized"))
+            } else {
+                Log.d(TAG, logFormat("initialize", "Detection module skipped - no cameras enabled"))
+            }
             
-            // Set detection frame callbacks on cameras
+            // Set detection frame callbacks on cameras ( if they are non-null )
             managedUSBCamera?.setDetectionFrameCallback(this)
             managedInternalCamera?.setDetectionFrameCallback(this)
             
@@ -127,6 +137,13 @@ class DetectionBasedRecorder(
      * Initialize USB camera with device
      */
     fun initializeUSBCamera(device: UsbDevice) {
+        // Check if USB camera is enabled in configuration
+        val isUSBEnabled = appConfig?.isUsbCameraEnabled ?: true
+        if (!isUSBEnabled) {
+            Log.d(TAG, logFormat("initializeUSBCamera", "USB camera disabled in configuration"))
+            return
+        }
+        
         if (activityContext == null) {
             Log.e(TAG, logFormat("initializeUSBCamera", "Activity context required for USB camera management"))
             return
@@ -165,6 +182,13 @@ class DetectionBasedRecorder(
      * Initialize internal camera
      */
     fun initializeInternalCamera() {
+        // Check if internal camera is enabled in configuration
+        val isInternalEnabled = appConfig?.isInternalCameraEnabled ?: true
+        if (!isInternalEnabled) {
+            Log.d(TAG, logFormat("initializeInternalCamera", "Internal camera disabled in configuration"))
+            return
+        }
+        
         if (activityContext == null) {
             Log.e(TAG, logFormat("initializeInternalCamera", "Activity context required for internal camera management"))
             return
@@ -265,6 +289,17 @@ class DetectionBasedRecorder(
         Log.d(TAG, logFormat("onRawFrameAvailable", "🎯 RAW_FRAME_RECEIVED - ${source} camera: ${width}x${height}, format=$format, size=${data.size}"))
         if (!isInitialized.get()) {
             Log.w(TAG, logFormat("onRawFrameAvailable", "⚠️ RAW_FRAME_DROPPED - Recorder not initialized"))
+            return
+        }
+        
+        // Check if the source camera is enabled in configuration
+        val isSourceEnabled = when (source) {
+            CameraType.USB -> appConfig?.isUsbCameraEnabled ?: true
+            CameraType.INTERNAL -> appConfig?.isInternalCameraEnabled ?: true
+        }
+        
+        if (!isSourceEnabled) {
+            Log.v(TAG, logFormat("onRawFrameAvailable", "⚠️ RAW_FRAME_DROPPED - ${source} camera disabled in configuration"))
             return
         }
 

@@ -15,6 +15,7 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import com.example.mergedapp.camera.*
+import com.example.mergedapp.config.AppConfigManager
 import com.example.mergedapp.detection.DetectionBasedRecorder
 import com.example.mergedapp.detection.DetectionStats
 import com.example.mergedapp.usb.USBPermissionManager
@@ -51,8 +52,11 @@ class DetectionBasedRecordingTestActivity : AppCompatActivity(),
     private var logText: TextView? = null
     private var radarDataButton: Button? = null
     
+    // Configuration manager
+    private lateinit var appConfig: AppConfigManager
+    
     // USB and camera management
-    private lateinit var usbPermissionManager: USBPermissionManager
+    private var usbPermissionManager: USBPermissionManager? = null
     private var currentUsbDevice: UsbDevice? = null
     
     // Detection-based recording
@@ -86,8 +90,19 @@ class DetectionBasedRecordingTestActivity : AppCompatActivity(),
         super.onCreate(savedInstanceState)
         Log.d(TAG, logFormat("onCreate", "DetectionBasedRecordingTestActivity started"))
         
-        // Initialize USB permission manager
-        usbPermissionManager = USBPermissionManager(this, this)
+        // Load application configuration first
+        appConfig = AppConfigManager.getInstance()
+        if (!appConfig.loadConfig(this)) {
+            Log.w(TAG, logFormat("onCreate", "Failed to load config, using defaults"))
+        }
+        
+        // Log configuration summary
+        Log.d(TAG, logFormat("onCreate", appConfig.getConfigSummary()))
+        
+        // Initialize USB permission manager only if USB camera or radar is enabled
+        if (appConfig.isUsbCameraEnabled || appConfig.isRadarEnabled) {
+            usbPermissionManager = USBPermissionManager(this, this)
+        }
         
         // Create UI
         createUI()
@@ -95,15 +110,19 @@ class DetectionBasedRecordingTestActivity : AppCompatActivity(),
         // Request permissions
         requestNecessaryPermissions()
         
-        // Initialize USB monitoring with delay
-        Handler(Looper.getMainLooper()).postDelayed({
-            initializeUSBMonitoring()
-        }, 2000)
+        // Initialize USB monitoring with delay (only if needed)
+        if (appConfig.isUsbCameraEnabled || appConfig.isRadarEnabled) {
+            Handler(Looper.getMainLooper()).postDelayed({
+                initializeUSBMonitoring()
+            }, 2000)
+        }
         
-        // Initialize internal camera with delay (after permissions)
-        Handler(Looper.getMainLooper()).postDelayed({
-            initializeInternalCamera()
-        }, 3000)
+        // Initialize internal camera with delay (only if enabled)
+        if (appConfig.isInternalCameraEnabled) {
+            Handler(Looper.getMainLooper()).postDelayed({
+                initializeInternalCamera()
+            }, 3000)
+        }
         
         // Start stats updates
         startStatsUpdates()
@@ -129,9 +148,20 @@ class DetectionBasedRecordingTestActivity : AppCompatActivity(),
             )
         }
         
-        // Title
+        // Title with dynamic component status
+        val enabledComponents = mutableListOf<String>()
+        if (appConfig.isUsbCameraEnabled) enabledComponents.add("USB")
+        if (appConfig.isInternalCameraEnabled) enabledComponents.add("Internal")
+        if (appConfig.isRadarEnabled) enabledComponents.add("Radar")
+        
+        val componentsText = if (enabledComponents.isNotEmpty()) {
+            enabledComponents.joinToString(" + ")
+        } else {
+            "No Components Enabled"
+        }
+        
         val titleText = TextView(this).apply {
-            text = "🎯 Detection-Based Recording Test\n📷 USB + Internal Cameras"
+            text = "🎯 Detection-Based Recording Test\n📷 Active: $componentsText"
             textSize = 20f
             setTextColor(0xFF4CAF50.toInt())
             gravity = Gravity.CENTER
@@ -157,9 +187,31 @@ class DetectionBasedRecordingTestActivity : AppCompatActivity(),
             }
         }
         
-        // Stats section
+        // Stats section - dynamic based on enabled components
+        val initialStatsText = buildString {
+            append("📊 System Status:\n\n")
+            
+            if (appConfig.isUsbCameraEnabled) {
+                append("🔌 USB Camera:\nFrames: 0 | FPS: 0.0 | Non-Detections: 0 | Status: ⚪ WAITING\n\n")
+            } else {
+                append("🔌 USB Camera: DISABLED\n\n")
+            }
+            
+            if (appConfig.isInternalCameraEnabled) {
+                append("📱 Internal Camera:\nFrames: 0 | FPS: 0.0 | Non-Detections: 0 | Status: ⚪ WAITING\n\n")
+            } else {
+                append("📱 Internal Camera: DISABLED\n\n")
+            }
+            
+            if (appConfig.isRadarEnabled) {
+                append("📡 Radar Sensor:\nSpeed: -- | Last Reading: --:--:--.--- | Status: 🔴 DISCONNECTED")
+            } else {
+                append("📡 Radar Sensor: DISABLED")
+            }
+        }
+        
         statsText = TextView(this).apply {
-            text = "📊 System Status:\n\n🔌 USB Camera:\nFrames: 0 | FPS: 0.0 | Non-Detections: 0 | Status: ⚪ WAITING\n\n📱 Internal Camera:\nFrames: 0 | FPS: 0.0 | Non-Detections: 0 | Status: ⚪ WAITING\n\n📡 Radar Sensor:\nSpeed: -- | Last Reading: --:--:--.--- | Status: 🔴 DISCONNECTED"
+            text = initialStatsText
             textSize = 14f
             setTextColor(0xFF81C784.toInt())
             setBackgroundColor(0xFF1B5E20.toInt())
@@ -172,21 +224,23 @@ class DetectionBasedRecordingTestActivity : AppCompatActivity(),
             }
         }
         
-        // Radar Data Saving Button
-        radarDataButton = Button(this).apply {
-            text = "📡 Start Radar Data Saving"
-            textSize = 16f
-            setTextColor(0xFFFFFFFF.toInt())
-            setBackgroundColor(0xFF2196F3.toInt())
-            setPadding(20, 15, 20, 15)
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply {
-                bottomMargin = 20
+        // Radar Data Saving Button (only if radar is enabled)
+        if (appConfig.isRadarEnabled) {
+            radarDataButton = Button(this).apply {
+                text = "📡 Start Radar Data Saving"
+                textSize = 16f
+                setTextColor(0xFFFFFFFF.toInt())
+                setBackgroundColor(0xFF2196F3.toInt())
+                setPadding(20, 15, 20, 15)
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply {
+                    bottomMargin = 20
+                }
+                setOnClickListener { toggleRadarDataSaving() }
+                isEnabled = false // Initially disabled until radar is connected
             }
-            setOnClickListener { toggleRadarDataSaving() }
-            isEnabled = false // Initially disabled until radar is connected
         }
         
         // Log section header
@@ -218,7 +272,7 @@ class DetectionBasedRecordingTestActivity : AppCompatActivity(),
         statusContainer?.addView(titleText)
         statusContainer?.addView(statusText)
         statusContainer?.addView(statsText)
-        statusContainer?.addView(radarDataButton)
+        radarDataButton?.let { statusContainer?.addView(it) }
         statusContainer?.addView(logHeader)
         statusContainer?.addView(logText)
         
@@ -266,12 +320,22 @@ class DetectionBasedRecordingTestActivity : AppCompatActivity(),
     }
     
     private fun initializeUSBMonitoring() {
+        if (usbPermissionManager == null) {
+            Log.w(TAG, logFormat("initializeUSBMonitoring", "USB permission manager not initialized (USB components disabled)"))
+            return
+        }
+        
         Log.d(TAG, logFormat("initializeUSBMonitoring", "Initializing USB monitoring"))
-        usbPermissionManager.register()
-        usbPermissionManager.checkAndRequestPermissions()
+        usbPermissionManager?.register()
+        usbPermissionManager?.checkAndRequestPermissions()
     }
     
     private fun initializeInternalCamera() {
+        if (!appConfig.isInternalCameraEnabled) {
+            Log.d(TAG, logFormat("initializeInternalCamera", "Internal camera disabled in configuration"))
+            return
+        }
+        
         Log.d(TAG, logFormat("initializeInternalCamera", "Initializing internal camera"))
         
         // Check if we have camera permission
@@ -281,11 +345,12 @@ class DetectionBasedRecordingTestActivity : AppCompatActivity(),
         }
         
         // Check if detection recorder is initialized
-        if (detectionRecorder == null) {
+        if (detectionRecorder == null ) {
             Log.d(TAG, logFormat("initializeInternalCamera", "Detection recorder not ready, creating new instance"))
             detectionRecorder = DetectionBasedRecorder(
                 context = this,
-                activityContext = this
+                activityContext = this,
+                appConfig = appConfig
             )
             detectionRecorder?.setRecordingStateListener(this)
             detectionRecorder?.initialize()
@@ -332,30 +397,42 @@ class DetectionBasedRecordingTestActivity : AppCompatActivity(),
                 statsText?.text = buildString {
                     append("📊 System Status:\n\n")
                     
-                    // USB Camera stats
-                    append("🔌 USB Camera:\n")
-                    append("Frames: ${stats.usbFramesProcessed} | ")
-                    append("FPS: ${String.format("%.1f", usbFps)} | ")
-                    append("Non-Detections: ${stats.usbConsecutiveNonDetections} | ")
-                    append("Status: ${if (stats.isUSBRecording) "🔴 RECORDING" else "⚪ WAITING"}\n\n")
-                    
-                    // Internal Camera stats
-                    append("📱 Internal Camera:\n")
-                    append("Frames: ${stats.internalFramesProcessed} | ")
-                    append("FPS: ${String.format("%.1f", internalFps)} | ")
-                    append("Non-Detections: ${stats.internalConsecutiveNonDetections} | ")
-                    append("Status: ${if (stats.isInternalRecording) "🔴 RECORDING" else "⚪ WAITING"}\n\n")
-                    
-                    // Radar Sensor stats
-                    append("📡 Radar Sensor:\n")
-                    append("Speed: ${if (lastRadarValue != 0.0f) String.format("%.1f", lastRadarValue) else "--"} ${lastRadarUnit} | ")
-                    append("Last Reading: $lastRadarTimestamp | ")
-                    val radarStatus = when {
-                        radarSensor?.isReading() == true -> "🟢 ACTIVE"
-                        isRadarConnected -> "⚪ READY"
-                        else -> "🔴 DISCONNECTED"
+                    // USB Camera stats (only if enabled)
+                    if (appConfig.isUsbCameraEnabled) {
+                        append("🔌 USB Camera:\n")
+                        append("Frames: ${stats.usbFramesProcessed} | ")
+                        append("FPS: ${String.format("%.1f", usbFps)} | ")
+                        append("Non-Detections: ${stats.usbConsecutiveNonDetections} | ")
+                        append("Status: ${if (stats.isUSBRecording) "🔴 RECORDING" else "⚪ WAITING"}\n\n")
+                    } else {
+                        append("🔌 USB Camera: DISABLED\n\n")
                     }
-                    append("Status: $radarStatus")
+                    
+                    // Internal Camera stats (only if enabled)
+                    if (appConfig.isInternalCameraEnabled) {
+                        append("📱 Internal Camera:\n")
+                        append("Frames: ${stats.internalFramesProcessed} | ")
+                        append("FPS: ${String.format("%.1f", internalFps)} | ")
+                        append("Non-Detections: ${stats.internalConsecutiveNonDetections} | ")
+                        append("Status: ${if (stats.isInternalRecording) "🔴 RECORDING" else "⚪ WAITING"}\n\n")
+                    } else {
+                        append("📱 Internal Camera: DISABLED\n\n")
+                    }
+                    
+                    // Radar Sensor stats (only if enabled)
+                    if (appConfig.isRadarEnabled) {
+                        append("📡 Radar Sensor:\n")
+                        append("Speed: ${if (lastRadarValue != 0.0f) String.format("%.1f", lastRadarValue) else "--"} ${lastRadarUnit} | ")
+                        append("Last Reading: $lastRadarTimestamp | ")
+                        val radarStatus = when {
+                            radarSensor?.isReading() == true -> "🟢 ACTIVE"
+                            isRadarConnected -> "⚪ READY"
+                            else -> "🔴 DISCONNECTED"
+                        }
+                        append("Status: $radarStatus")
+                    } else {
+                        append("📡 Radar Sensor: DISABLED")
+                    }
                 }
             }
         }
@@ -420,17 +497,27 @@ class DetectionBasedRecordingTestActivity : AppCompatActivity(),
         
         when (deviceType) {
             USBDeviceType.UVC_CAMERA -> {
-                updateStatus("✅ USB Camera Permission Granted\n🔄 Initializing detection system...")
-                addLogMessage("USB camera permission granted for ${device.productName ?: device.deviceName}")
-                currentUsbDevice = device
-                usbPermissionManager.logDeviceInfo(device)
-                initializeDetectionSystem(device)
+                if (appConfig.isUsbCameraEnabled) {
+                    updateStatus("✅ USB Camera Permission Granted\n🔄 Initializing detection system...")
+                    addLogMessage("USB camera permission granted for ${device.productName ?: device.deviceName}")
+                    currentUsbDevice = device
+                    usbPermissionManager?.logDeviceInfo(device)
+                    initializeDetectionSystem(device)
+                } else {
+                    Log.d(TAG, logFormat("onPermissionGranted", "USB camera disabled in configuration, ignoring"))
+                    addLogMessage("USB camera detected but disabled in configuration")
+                }
             }
             USBDeviceType.RADAR_SENSOR -> {
-                updateStatus("✅ Radar Sensor Permission Granted\n🔄 Initializing radar...")
-                addLogMessage("Radar sensor permission granted for ${device.productName ?: device.deviceName}")
-                usbPermissionManager.logDeviceInfo(device)
-                initializeRadarSensor(device)
+                if (appConfig.isRadarEnabled) {
+                    updateStatus("✅ Radar Sensor Permission Granted\n🔄 Initializing radar...")
+                    addLogMessage("Radar sensor permission granted for ${device.productName ?: device.deviceName}")
+                    usbPermissionManager?.logDeviceInfo(device)
+                    initializeRadarSensor(device)
+                } else {
+                    Log.d(TAG, logFormat("onPermissionGranted", "Radar sensor disabled in configuration, ignoring"))
+                    addLogMessage("Radar sensor detected but disabled in configuration")
+                }
             }
             USBDeviceType.UNKNOWN -> {
                 Log.w(TAG, logFormat("onPermissionGranted", "Unknown device type, ignoring"))
@@ -458,7 +545,7 @@ class DetectionBasedRecordingTestActivity : AppCompatActivity(),
         }
         Log.d(TAG, logFormat("onUsbDeviceAttached", "🔌 $deviceName attached: ${device.deviceName}"))
         addLogMessage("$deviceName attached: ${device.productName ?: device.deviceName}")
-        usbPermissionManager.requestPermission(device)
+        usbPermissionManager?.requestPermission(device)
     }
     
     override fun onUsbDeviceDetached(device: UsbDevice, deviceType: USBDeviceType) {
@@ -488,21 +575,29 @@ class DetectionBasedRecordingTestActivity : AppCompatActivity(),
     }
 
     private fun initializeDetectionSystem(device: UsbDevice) {
+        if (!appConfig.isUsbCameraEnabled) {
+            Log.d(TAG, logFormat("initializeDetectionSystem", "USB camera disabled in configuration"))
+            return
+        }
+        
         try {
             updateStatus("🔄 Initializing Detection System\n${device.productName ?: device.deviceName}")
             addLogMessage("Initializing detection system...")
             
             // Create detection-based recorder with activity context for USB management
-            detectionRecorder = DetectionBasedRecorder(
-                context = this,
-                activityContext = this
-            )
-            
-            // Set recording state listener to get detection events
-            detectionRecorder?.setRecordingStateListener(this)
-            
-            // Initialize detection system
-            detectionRecorder?.initialize()
+            if (detectionRecorder == null && appConfig.shouldInitializeDetection()) {
+                detectionRecorder = DetectionBasedRecorder(
+                    context = this,
+                    activityContext = this,
+                    appConfig = appConfig
+                )
+                
+                // Set recording state listener to get detection events
+                detectionRecorder?.setRecordingStateListener(this)
+                
+                // Initialize detection system
+                detectionRecorder?.initialize()
+            }
             
             // Initialize USB camera through DetectionBasedRecorder
             detectionRecorder?.initializeUSBCamera(device)
@@ -517,6 +612,11 @@ class DetectionBasedRecordingTestActivity : AppCompatActivity(),
     }
     
     private fun initializeRadarSensor(device: UsbDevice) {
+        if (!appConfig.isRadarEnabled) {
+            Log.d(TAG, logFormat("initializeRadarSensor", "Radar sensor disabled in configuration"))
+            return
+        }
+        
         try {
             Log.d(TAG, logFormat("initializeRadarSensor", "🎯 Starting radar sensor initialization"))
             Log.d(TAG, logFormat("initializeRadarSensor", "Device: ${device.productName ?: device.deviceName} (VID=${device.vendorId}, PID=${device.productId})"))
@@ -783,6 +883,7 @@ class DetectionBasedRecordingTestActivity : AppCompatActivity(),
         }
     }
     
+    @Deprecated("Deprecated in Java")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
         
@@ -876,7 +977,7 @@ class DetectionBasedRecordingTestActivity : AppCompatActivity(),
         shutdownDetectionSystem()
         
         // Unregister USB receiver
-        usbPermissionManager.unregister()
+        usbPermissionManager?.unregister()
         
         super.onDestroy()
     }

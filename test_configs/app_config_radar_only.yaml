@@ -1,0 +1,11 @@
+# Test Configuration - Radar Only
+# This config enables only radar sensor, disables both cameras
+
+# USB Camera component
+usb_camera_enabled: false
+
+# Internal/Main Camera component  
+internal_camera_enabled: false
+
+# Radar sensor component
+radar_enabled: true

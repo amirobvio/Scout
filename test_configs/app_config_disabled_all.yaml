@@ -1,0 +1,11 @@
+# Test Configuration - All Components Disabled
+# This config disables all components for testing minimal resource usage
+
+# USB Camera component
+usb_camera_enabled: false
+
+# Internal/Main Camera component  
+internal_camera_enabled: false
+
+# Radar sensor component
+radar_enabled: false
