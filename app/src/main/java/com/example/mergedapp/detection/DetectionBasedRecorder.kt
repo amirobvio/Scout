@@ -6,6 +6,7 @@ import android.hardware.usb.UsbDevice
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
+import android.view.ViewGroup
 import androidx.appcompat.app.AppCompatActivity
 import com.example.mergedapp.camera.*
 import com.example.mergedapp.camera.FrameConversionUtils
@@ -136,7 +137,7 @@ class DetectionBasedRecorder(
     /**
      * Initialize USB camera with device
      */
-    fun initializeUSBCamera(device: UsbDevice) {
+    fun initializeUSBCamera(device: UsbDevice, previewContainer: ViewGroup? = null) {
         // Check if USB camera is enabled in configuration
         val isUSBEnabled = appConfig?.isUsbCameraEnabled ?: true
         if (!isUSBEnabled) {
@@ -153,21 +154,25 @@ class DetectionBasedRecorder(
             Log.d(TAG, logFormat("initializeUSBCamera", "Initializing USB camera with device: ${device.productName ?: device.deviceName}"))
 
             
-            // Create managed USB camera fragment
+            // Create managed USB camera fragment with configurable preview
             managedUSBCamera = USBCameraFragment.newInstance(device, CameraConfig(
                 width = 1280, 
                 height = 720,
                 enableDetectionFrames = true,
-                showPreview = false
+                showPreview = appConfig?.showUsbPreview ?: false  // Allow configuration of preview
             ), activityContext!!)
             managedUSBCamera?.setCameraStateListener(this)
             managedUSBCamera?.setDetectionFrameCallback(this)
             
-            // Add fragment to activity
+            // Add fragment to activity or custom container
             val fragmentManager = activityContext!!.supportFragmentManager
+            val containerId = previewContainer?.id ?: android.R.id.content
+            
             fragmentManager.beginTransaction()
-                .add(android.R.id.content, managedUSBCamera!!, "usb_camera_fragment")
+                .add(containerId, managedUSBCamera!!, "usb_camera_fragment")
                 .commit()
+            
+            Log.d(TAG, logFormat("initializeUSBCamera", "USB camera fragment added to container ID: $containerId"))
             
 
             // Camera starts automatically when fragment is added

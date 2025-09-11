@@ -51,6 +51,7 @@ class DetectionBasedRecordingTestActivity : AppCompatActivity(),
     private var statsText: TextView? = null
     private var logText: TextView? = null
     private var radarDataButton: Button? = null
+    private var previewContainer: FrameLayout? = null
     
     // Configuration manager
     private lateinit var appConfig: AppConfigManager
@@ -172,6 +173,20 @@ class DetectionBasedRecordingTestActivity : AppCompatActivity(),
             )
         }
         
+        // USB Camera Preview Container (only if preview is enabled)
+        previewContainer = if (appConfig.isUsbCameraEnabled && appConfig.showUsbPreview) {
+            FrameLayout(this).apply {
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    300 // Smaller height to not dominate the screen
+                ).apply {
+                    bottomMargin = 20
+                }
+                setBackgroundColor(0xFF000000.toInt())
+                id = android.view.View.generateViewId() // Generate unique ID for fragment container
+            }
+        } else null
+        
         // Status section
         statusText = TextView(this).apply {
             text = "🔌 Initializing USB camera system...\n⚠️ Connect USB camera and grant permissions"
@@ -270,6 +285,7 @@ class DetectionBasedRecordingTestActivity : AppCompatActivity(),
         
         // Add views to container
         statusContainer?.addView(titleText)
+        previewContainer?.let { statusContainer?.addView(it) } // Add preview container if created
         statusContainer?.addView(statusText)
         statusContainer?.addView(statsText)
         radarDataButton?.let { statusContainer?.addView(it) }
@@ -599,8 +615,8 @@ class DetectionBasedRecordingTestActivity : AppCompatActivity(),
                 detectionRecorder?.initialize()
             }
             
-            // Initialize USB camera through DetectionBasedRecorder
-            detectionRecorder?.initializeUSBCamera(device)
+            // Initialize USB camera through DetectionBasedRecorder with custom preview container
+            detectionRecorder?.initializeUSBCamera(device, previewContainer)
             
             Log.d(TAG, logFormat("initializeDetectionSystem", "Detection system initialization started"))
             

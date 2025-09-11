@@ -7,6 +7,7 @@ import android.os.Looper
 import android.util.Log
 import android.view.*
 import android.widget.FrameLayout
+import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import com.jiangdg.ausbc.base.CameraFragment
 import com.jiangdg.ausbc.callback.ICameraStateCallBack
@@ -143,24 +144,73 @@ class USBCameraFragment : CameraFragment(), ICamera {
     
     // AUSBC CameraFragment required methods
     override fun getRootView(inflater: LayoutInflater, container: ViewGroup?): View? {
-        Log.d(TAG, "Creating root view for offscreen mode (no preview)")
-        
-        // Always return minimal invisible view for offscreen mode
-        // This ensures camera works without any preview surface, saving significant RAM
-        return View(requireContext()).apply {
-            layoutParams = ViewGroup.LayoutParams(0, 0)
-            visibility = View.GONE
+        return if (cameraConfig.showPreview) {
+            Log.d(TAG, "Creating root view with preview enabled")
+            // Create container for preview surface that fits within parent constraints
+            FrameLayout(requireContext()).apply {
+                layoutParams = ViewGroup.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, 
+                    ViewGroup.LayoutParams.MATCH_PARENT
+                )
+                setBackgroundColor(0xFF000000.toInt()) // Black background
+                
+                // Add preview label
+                val previewLabel = TextView(requireContext()).apply {
+                    text = "📹 USB Camera Preview"
+                    textSize = 14f
+                    setTextColor(0xFF4CAF50.toInt())
+                    gravity = Gravity.CENTER_HORIZONTAL or Gravity.TOP
+                    setPadding(0, 8, 0, 8)
+                    layoutParams = FrameLayout.LayoutParams(
+                        FrameLayout.LayoutParams.MATCH_PARENT,
+                        FrameLayout.LayoutParams.WRAP_CONTENT,
+                        Gravity.TOP
+                    )
+                }
+                addView(previewLabel)
+            }
+        } else {
+            Log.d(TAG, "Creating root view for offscreen mode (no preview)")
+            // Return minimal invisible view for offscreen mode
+            // This ensures camera works without any preview surface, saving significant RAM
+            View(requireContext()).apply {
+                layoutParams = ViewGroup.LayoutParams(0, 0)
+                visibility = View.GONE
+            }
         }
     }
     
     override fun getCameraView(): IAspectRatio? {
-        // Always return null for offscreen mode - no preview surface needed
-        return null
+        return if (cameraConfig.showPreview) {
+            Log.d(TAG, "Creating camera preview surface")
+            // Create preview surface for live feed that respects container bounds
+            AspectRatioTextureView(requireContext()).apply {
+                layoutParams = FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    Gravity.CENTER
+                ).apply {
+                    topMargin = 40 // Leave space for label
+                }
+                setAspectRatio(cameraConfig.width, cameraConfig.height)
+            }
+        } else {
+            Log.d(TAG, "No preview surface needed for offscreen mode")
+            // Return null for offscreen mode - no preview surface needed
+            null
+        }
     }
     
     override fun getCameraViewContainer(): ViewGroup? {
-        // No container needed for offscreen mode
-        return null
+        return if (cameraConfig.showPreview) {
+            Log.d(TAG, "Providing camera view container for preview")
+            // Return the root view as container when preview is enabled
+            view as? ViewGroup
+        } else {
+            Log.d(TAG, "No container needed for offscreen mode")
+            // No container needed for offscreen mode
+            null
+        }
     }
     
     override fun getCameraRequest(): CameraRequest {
@@ -184,7 +234,8 @@ class USBCameraFragment : CameraFragment(), ICamera {
     
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
-        Log.d(TAG, "onViewCreated - Device: ${targetUsbDevice.deviceName} (offscreen mode)")
+        val mode = if (cameraConfig.showPreview) "PREVIEW MODE" else "OFFSCREEN MODE"
+        Log.d(TAG, "onViewCreated - Device: ${targetUsbDevice.deviceName} ($mode)")
         
         // Enable AUSBC debugging
         try {
@@ -193,7 +244,11 @@ class USBCameraFragment : CameraFragment(), ICamera {
             Log.w(TAG, "Could not enable AUSBC debugging: ${e.message}")
         }
         
-        // No preview surface to configure in offscreen mode
+        if (cameraConfig.showPreview) {
+            Log.i(TAG, "📺 USB Camera Preview ENABLED - Live feed will be displayed")
+        } else {
+            Log.i(TAG, "📺 USB Camera Preview DISABLED - Running in offscreen mode (saves RAM)")
+        }
     }
     
     override fun onCameraState(
