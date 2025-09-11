@@ -43,6 +43,9 @@ class AppConfigManager private constructor() {
         
     var isRadarEnabled: Boolean = true
         private set
+        
+    var showUsbPreview: Boolean = true
+        private set
     
     private var isConfigLoaded = false
     
@@ -71,11 +74,13 @@ class AppConfigManager private constructor() {
             isUsbCameraEnabled = (config["usb_camera_enabled"] as? Boolean) ?: true
             isInternalCameraEnabled = (config["internal_camera_enabled"] as? Boolean) ?: true
             isRadarEnabled = (config["radar_enabled"] as? Boolean) ?: true
+            showUsbPreview = (config["show_usb_preview"] as? Boolean) ?: false
             
             isConfigLoaded = true
             
             Log.d(TAG, logFormat("loadConfig", "✅ Configuration loaded successfully:"))
             Log.d(TAG, logFormat("loadConfig", "  USB Camera: ${if (isUsbCameraEnabled) "ENABLED" else "DISABLED"}"))
+            Log.d(TAG, logFormat("loadConfig", "  USB Preview: ${if (showUsbPreview) "ENABLED" else "DISABLED"}"))
             Log.d(TAG, logFormat("loadConfig", "  Internal Camera: ${if (isInternalCameraEnabled) "ENABLED" else "DISABLED"}"))
             Log.d(TAG, logFormat("loadConfig", "  Radar: ${if (isRadarEnabled) "ENABLED" else "DISABLED"}"))
             
@@ -89,6 +94,7 @@ class AppConfigManager private constructor() {
             isUsbCameraEnabled = true
             isInternalCameraEnabled = true
             isRadarEnabled = true
+            showUsbPreview = false
             isConfigLoaded = true
             
             return false
@@ -102,6 +108,9 @@ class AppConfigManager private constructor() {
         return buildString {
             append("Component Configuration:\n")
             append("🔌 USB Camera: ${if (isUsbCameraEnabled) "ENABLED" else "DISABLED"}\n")
+            if (isUsbCameraEnabled) {
+                append("   📺 USB Preview: ${if (showUsbPreview) "ENABLED" else "DISABLED (offscreen mode)"}\n")
+            }
             append("📱 Internal Camera: ${if (isInternalCameraEnabled) "ENABLED" else "DISABLED"}\n")
             append("📡 Radar: ${if (isRadarEnabled) "ENABLED" else "DISABLED"}")
         }

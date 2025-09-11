@@ -4,7 +4,7 @@ usb_camera_enabled: true
 show_usb_preview: true
 
 # Internal/Main Camera component  
-internal_camera_enabled: true
+internal_camera_enabled: false
 
 # Radar sensor component
 radar_enabled: true
