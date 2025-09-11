@@ -1,5 +1,7 @@
-# USB Camera component
-usb_camera_enabled: false
+usb_camera_enabled: true
+
+# USB Camera preview (set to true to show live feed, false for offscreen recording-only mode)
+show_usb_preview: true
 
 # Internal/Main Camera component  
 internal_camera_enabled: true
