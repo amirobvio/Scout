@@ -35,6 +35,7 @@ class DetectionBasedRecordingTestActivity : AppCompatActivity(),
     
     companion object {
         private const val TAG = "DetectionRecordingTest"
+        private const val DEBUG_TAG = "DEBUG_USB_RESTART"
         private const val PERMISSION_REQUEST_CODE = 1002
         private const val STATS_UPDATE_INTERVAL = 1000L // Update stats every second
         
@@ -336,14 +337,20 @@ class DetectionBasedRecordingTestActivity : AppCompatActivity(),
     }
     
     private fun initializeUSBMonitoring() {
+        Log.d(DEBUG_TAG, "DetectionBasedRecordingTestActivity.initializeUSBMonitoring: Starting USB monitoring initialization")
+        
         if (usbPermissionManager == null) {
             Log.w(TAG, logFormat("initializeUSBMonitoring", "USB permission manager not initialized (USB components disabled)"))
+            Log.w(DEBUG_TAG, "DetectionBasedRecordingTestActivity.initializeUSBMonitoring: USB permission manager is null")
             return
         }
         
         Log.d(TAG, logFormat("initializeUSBMonitoring", "Initializing USB monitoring"))
+        Log.d(DEBUG_TAG, "DetectionBasedRecordingTestActivity.initializeUSBMonitoring: Registering USB receiver")
         usbPermissionManager?.register()
+        Log.d(DEBUG_TAG, "DetectionBasedRecordingTestActivity.initializeUSBMonitoring: Checking and requesting permissions")
         usbPermissionManager?.checkAndRequestPermissions()
+        Log.d(DEBUG_TAG, "DetectionBasedRecordingTestActivity.initializeUSBMonitoring: USB monitoring initialization completed")
     }
     
     private fun initializeInternalCamera() {
@@ -510,17 +517,24 @@ class DetectionBasedRecordingTestActivity : AppCompatActivity(),
     // USBPermissionManager.USBPermissionListener implementation
     override fun onPermissionGranted(device: UsbDevice, deviceType: USBDeviceType) {
         Log.d(TAG, logFormat("onPermissionGranted", "✅ USB permission granted for: ${device.deviceName} (Type: $deviceType)"))
+        Log.d(DEBUG_TAG, "DetectionBasedRecordingTestActivity.onPermissionGranted: Permission granted for ${device.deviceName} (VID=${device.vendorId}, PID=${device.productId}, Type: $deviceType)")
+        Log.d(DEBUG_TAG, "DetectionBasedRecordingTestActivity.onPermissionGranted: Thread: ${Thread.currentThread().name}")
         
         when (deviceType) {
             USBDeviceType.UVC_CAMERA -> {
+                Log.d(DEBUG_TAG, "DetectionBasedRecordingTestActivity.onPermissionGranted: Processing UVC_CAMERA permission")
                 if (appConfig.isUsbCameraEnabled) {
+                    Log.d(DEBUG_TAG, "DetectionBasedRecordingTestActivity.onPermissionGranted: USB camera enabled in config, initializing detection system")
                     updateStatus("✅ USB Camera Permission Granted\n🔄 Initializing detection system...")
                     addLogMessage("USB camera permission granted for ${device.productName ?: device.deviceName}")
                     currentUsbDevice = device
                     usbPermissionManager?.logDeviceInfo(device)
+                    Log.d(DEBUG_TAG, "DetectionBasedRecordingTestActivity.onPermissionGranted: Calling initializeDetectionSystem")
                     initializeDetectionSystem(device)
+                    Log.d(DEBUG_TAG, "DetectionBasedRecordingTestActivity.onPermissionGranted: initializeDetectionSystem call completed")
                 } else {
                     Log.d(TAG, logFormat("onPermissionGranted", "USB camera disabled in configuration, ignoring"))
+                    Log.d(DEBUG_TAG, "DetectionBasedRecordingTestActivity.onPermissionGranted: USB camera disabled in configuration")
                     addLogMessage("USB camera detected but disabled in configuration")
                 }
             }
@@ -560,8 +574,14 @@ class DetectionBasedRecordingTestActivity : AppCompatActivity(),
             USBDeviceType.UNKNOWN -> "unknown device"
         }
         Log.d(TAG, logFormat("onUsbDeviceAttached", "🔌 $deviceName attached: ${device.deviceName}"))
+        Log.d(DEBUG_TAG, "DetectionBasedRecordingTestActivity.onUsbDeviceAttached: Device attached - ${device.deviceName} (VID=${device.vendorId}, PID=${device.productId}, Type: $deviceType)")
+        Log.d(DEBUG_TAG, "DetectionBasedRecordingTestActivity.onUsbDeviceAttached: Thread: ${Thread.currentThread().name}")
+        
         addLogMessage("$deviceName attached: ${device.productName ?: device.deviceName}")
+        
+        Log.d(DEBUG_TAG, "DetectionBasedRecordingTestActivity.onUsbDeviceAttached: Requesting permission for attached device")
         usbPermissionManager?.requestPermission(device)
+        Log.d(DEBUG_TAG, "DetectionBasedRecordingTestActivity.onUsbDeviceAttached: Permission request completed")
     }
     
     override fun onUsbDeviceDetached(device: UsbDevice, deviceType: USBDeviceType) {
@@ -591,8 +611,13 @@ class DetectionBasedRecordingTestActivity : AppCompatActivity(),
     }
 
     private fun initializeDetectionSystem(device: UsbDevice) {
+        Log.d(DEBUG_TAG, "DetectionBasedRecordingTestActivity.initializeDetectionSystem: Starting detection system initialization")
+        Log.d(DEBUG_TAG, "DetectionBasedRecordingTestActivity.initializeDetectionSystem: Device: ${device.deviceName} (VID=${device.vendorId}, PID=${device.productId})")
+        Log.d(DEBUG_TAG, "DetectionBasedRecordingTestActivity.initializeDetectionSystem: Thread: ${Thread.currentThread().name}")
+        
         if (!appConfig.isUsbCameraEnabled) {
             Log.d(TAG, logFormat("initializeDetectionSystem", "USB camera disabled in configuration"))
+            Log.d(DEBUG_TAG, "DetectionBasedRecordingTestActivity.initializeDetectionSystem: USB camera disabled in config, returning")
             return
         }
         
@@ -600,23 +625,33 @@ class DetectionBasedRecordingTestActivity : AppCompatActivity(),
             updateStatus("🔄 Initializing Detection System\n${device.productName ?: device.deviceName}")
             addLogMessage("Initializing detection system...")
             
+            Log.d(DEBUG_TAG, "DetectionBasedRecordingTestActivity.initializeDetectionSystem: Checking if detection recorder needs to be created")
+            
             // Create detection-based recorder with activity context for USB management
             if (detectionRecorder == null && appConfig.shouldInitializeDetection()) {
+                Log.d(DEBUG_TAG, "DetectionBasedRecordingTestActivity.initializeDetectionSystem: Creating DetectionBasedRecorder")
                 detectionRecorder = DetectionBasedRecorder(
                     context = this,
                     activityContext = this,
                     appConfig = appConfig
                 )
                 
+                Log.d(DEBUG_TAG, "DetectionBasedRecordingTestActivity.initializeDetectionSystem: Setting recording state listener")
                 // Set recording state listener to get detection events
                 detectionRecorder?.setRecordingStateListener(this)
                 
+                Log.d(DEBUG_TAG, "DetectionBasedRecordingTestActivity.initializeDetectionSystem: Initializing detection system")
                 // Initialize detection system
                 detectionRecorder?.initialize()
+                Log.d(DEBUG_TAG, "DetectionBasedRecordingTestActivity.initializeDetectionSystem: Detection system initialization completed")
+            } else {
+                Log.d(DEBUG_TAG, "DetectionBasedRecordingTestActivity.initializeDetectionSystem: Detection recorder already exists or initialization not needed")
             }
             
+            Log.d(DEBUG_TAG, "DetectionBasedRecordingTestActivity.initializeDetectionSystem: Initializing USB camera with preview container")
             // Initialize USB camera through DetectionBasedRecorder with custom preview container
             detectionRecorder?.initializeUSBCamera(device, previewContainer)
+            Log.d(DEBUG_TAG, "DetectionBasedRecordingTestActivity.initializeDetectionSystem: USB camera initialization call completed")
             
             Log.d(TAG, logFormat("initializeDetectionSystem", "Detection system initialization started"))
             

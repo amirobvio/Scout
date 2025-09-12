@@ -52,6 +52,7 @@ class DetectionBasedRecorder(
     
     companion object {
         private const val TAG = "DetectionBasedRecorder"
+        private const val DEBUG_TAG = "DEBUG_USB_RESTART"
         
         // Helper function for consistent logging format
         private fun logFormat(functionName: String, message: String): String {
@@ -90,7 +91,7 @@ class DetectionBasedRecorder(
     private var recordingListener: RecordingStateListener? = null
 
     // target objects 
-    private val targetObjects = listOf("laptop")
+    private val targetObjects = listOf("laptop","car","truck","bus")
     
     /**
      * Interface for receiving recording state updates
@@ -138,46 +139,69 @@ class DetectionBasedRecorder(
      * Initialize USB camera with device
      */
     fun initializeUSBCamera(device: UsbDevice, previewContainer: ViewGroup? = null) {
+        Log.d(DEBUG_TAG, "DetectionBasedRecorder.initializeUSBCamera: Starting USB camera initialization")
+        Log.d(DEBUG_TAG, "DetectionBasedRecorder.initializeUSBCamera: Device details - ${device.deviceName} (VID=${device.vendorId}, PID=${device.productId})")
+        Log.d(DEBUG_TAG, "DetectionBasedRecorder.initializeUSBCamera: PreviewContainer provided: ${previewContainer != null}")
+        
         // Check if USB camera is enabled in configuration
         val isUSBEnabled = appConfig?.isUsbCameraEnabled ?: true
+        Log.d(DEBUG_TAG, "DetectionBasedRecorder.initializeUSBCamera: USB camera enabled in config: $isUSBEnabled")
+        
         if (!isUSBEnabled) {
             Log.d(TAG, logFormat("initializeUSBCamera", "USB camera disabled in configuration"))
+            Log.d(DEBUG_TAG, "DetectionBasedRecorder.initializeUSBCamera: USB camera disabled, returning")
             return
         }
         
         if (activityContext == null) {
             Log.e(TAG, logFormat("initializeUSBCamera", "Activity context required for USB camera management"))
+            Log.e(DEBUG_TAG, "DetectionBasedRecorder.initializeUSBCamera: Activity context is null, cannot proceed")
             return
         }
         
+        Log.d(DEBUG_TAG, "DetectionBasedRecorder.initializeUSBCamera: Activity context available: ${activityContext!!.javaClass.simpleName}")
+        
         try {
             Log.d(TAG, logFormat("initializeUSBCamera", "Initializing USB camera with device: ${device.productName ?: device.deviceName}"))
+            Log.d(DEBUG_TAG, "DetectionBasedRecorder.initializeUSBCamera: Creating USB camera configuration")
 
             
             // Create managed USB camera fragment with configurable preview
+            val showPreview = appConfig?.showUsbPreview ?: false
+            Log.d(DEBUG_TAG, "DetectionBasedRecorder.initializeUSBCamera: Camera config - 1280x720, detectFrames=true, showPreview=$showPreview")
+            
             managedUSBCamera = USBCameraFragment.newInstance(device, CameraConfig(
                 width = 1280, 
                 height = 720,
                 enableDetectionFrames = true,
-                showPreview = appConfig?.showUsbPreview ?: false  // Allow configuration of preview
+                showPreview = showPreview  // Allow configuration of preview
             ), activityContext!!)
+            
+            Log.d(DEBUG_TAG, "DetectionBasedRecorder.initializeUSBCamera: USB camera fragment created, setting listeners")
             managedUSBCamera?.setCameraStateListener(this)
             managedUSBCamera?.setDetectionFrameCallback(this)
+            Log.d(DEBUG_TAG, "DetectionBasedRecorder.initializeUSBCamera: Camera state and detection frame callbacks set")
             
             // Add fragment to activity or custom container
             val fragmentManager = activityContext!!.supportFragmentManager
             val containerId = previewContainer?.id ?: android.R.id.content
+            
+            Log.d(DEBUG_TAG, "DetectionBasedRecorder.initializeUSBCamera: Adding fragment to container ID: $containerId")
+            Log.d(DEBUG_TAG, "DetectionBasedRecorder.initializeUSBCamera: FragmentManager state: ${fragmentManager.fragments.size} existing fragments")
             
             fragmentManager.beginTransaction()
                 .add(containerId, managedUSBCamera!!, "usb_camera_fragment")
                 .commit()
             
             Log.d(TAG, logFormat("initializeUSBCamera", "USB camera fragment added to container ID: $containerId"))
+            Log.d(DEBUG_TAG, "DetectionBasedRecorder.initializeUSBCamera: Fragment transaction committed")
             
 
             // Camera starts automatically when fragment is added
+            Log.d(DEBUG_TAG, "DetectionBasedRecorder.initializeUSBCamera: USB camera initialization completed, fragment will start camera automatically")
             
         } catch (e: Exception) {
+            Log.e(DEBUG_TAG, "DetectionBasedRecorder.initializeUSBCamera: Exception during initialization: ${e.message}", e)
             Log.e(TAG, logFormat("initializeUSBCamera", "Failed to initialize USB camera: ${e.message}"), e)
             recordingListener?.onRecordingError(CameraType.USB, "Failed to initialize USB camera: ${e.message}")
         }

@@ -32,6 +32,7 @@ class USBPermissionManager(
     
     companion object {
         private const val TAG = "USBPermissionManager"
+        private const val DEBUG_TAG = "DEBUG_USB_RESTART"
         private const val ACTION_USB_PERMISSION = "com.example.mergedapp.UNIFIED_USB_PERMISSION"
         
         // Radar sensor constants (from radar_demo)
@@ -78,6 +79,7 @@ class USBPermissionManager(
         override fun onReceive(context: Context, intent: Intent) {
             val action = intent.action
             Log.d(TAG, "USB broadcast received: $action")
+            Log.d(DEBUG_TAG, "USBPermissionManager.onReceive: Action=$action, Thread=${Thread.currentThread().name}")
             
             when (action) {
                 ACTION_USB_PERMISSION -> {
@@ -91,17 +93,24 @@ class USBPermissionManager(
                         
                         device?.let {
                             val deviceType = getDeviceType(device)
-                            if (intent.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false)) {
+                            val isGranted = intent.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false)
+                            Log.d(DEBUG_TAG, "USBPermissionManager.onReceive: Permission result for ${device.deviceName} (Type: $deviceType) - Granted: $isGranted")
+                            
+                            if (isGranted) {
                                 Log.d(TAG, "✅ USB permission granted for device: ${device.deviceName} (Type: $deviceType)")
+                                Log.d(DEBUG_TAG, "USBPermissionManager.onReceive: Calling listener.onPermissionGranted for ${device.deviceName}")
                                 listener.onPermissionGranted(device, deviceType)
+                                Log.d(DEBUG_TAG, "USBPermissionManager.onReceive: listener.onPermissionGranted completed for ${device.deviceName}")
                             } else {
                                 Log.w(TAG, "❌ USB permission denied for device: ${device.deviceName} (Type: $deviceType)")
+                                Log.d(DEBUG_TAG, "USBPermissionManager.onReceive: Calling listener.onPermissionDenied for ${device.deviceName}")
                                 listener.onPermissionDenied(device, deviceType)
                             }
-                        }
+                        } ?: Log.e(DEBUG_TAG, "USBPermissionManager.onReceive: Device is null in permission broadcast")
                     }
                 }
                 UsbManager.ACTION_USB_DEVICE_ATTACHED -> {
+                    Log.d(DEBUG_TAG, "USBPermissionManager.onReceive: USB_DEVICE_ATTACHED received")
                     val device: UsbDevice? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                         intent.getParcelableExtra(UsbManager.EXTRA_DEVICE, UsbDevice::class.java)
                     } else {
@@ -112,12 +121,19 @@ class USBPermissionManager(
                     device?.let {
                         val deviceType = getDeviceType(device)
                         Log.d(TAG, "USB device attached: ${device.deviceName} (Type: $deviceType)")
+                        Log.d(DEBUG_TAG, "USBPermissionManager.onReceive: Device attached - ${device.deviceName} (Type: $deviceType, VID=${device.vendorId}, PID=${device.productId})")
+                        
                         if (shouldHandleDevice(device)) {
+                            Log.d(DEBUG_TAG, "USBPermissionManager.onReceive: Calling listener.onUsbDeviceAttached for ${device.deviceName}")
                             listener.onUsbDeviceAttached(device, deviceType)
+                            Log.d(DEBUG_TAG, "USBPermissionManager.onReceive: listener.onUsbDeviceAttached completed for ${device.deviceName}")
+                        } else {
+                            Log.d(DEBUG_TAG, "USBPermissionManager.onReceive: Device ${device.deviceName} not handled (Type: $deviceType)")
                         }
-                    }
+                    } ?: Log.e(DEBUG_TAG, "USBPermissionManager.onReceive: Device is null in attach broadcast")
                 }
                 UsbManager.ACTION_USB_DEVICE_DETACHED -> {
+                    Log.d(DEBUG_TAG, "USBPermissionManager.onReceive: USB_DEVICE_DETACHED received")
                     val device: UsbDevice? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                         intent.getParcelableExtra(UsbManager.EXTRA_DEVICE, UsbDevice::class.java)
                     } else {
@@ -128,10 +144,15 @@ class USBPermissionManager(
                     device?.let {
                         val deviceType = getDeviceType(device)
                         Log.d(TAG, "USB device detached: ${device.deviceName} (Type: $deviceType)")
+                        Log.d(DEBUG_TAG, "USBPermissionManager.onReceive: Device detached - ${device.deviceName} (Type: $deviceType)")
+                        
                         if (shouldHandleDevice(device)) {
+                            Log.d(DEBUG_TAG, "USBPermissionManager.onReceive: Calling listener.onUsbDeviceDetached for ${device.deviceName}")
                             listener.onUsbDeviceDetached(device, deviceType)
+                        } else {
+                            Log.d(DEBUG_TAG, "USBPermissionManager.onReceive: Detached device ${device.deviceName} not handled (Type: $deviceType)")
                         }
-                    }
+                    } ?: Log.e(DEBUG_TAG, "USBPermissionManager.onReceive: Device is null in detach broadcast")
                 }
             }
         }
@@ -141,8 +162,11 @@ class USBPermissionManager(
      * Register USB receiver to listen for permission and device events
      */
     fun register() {
+        Log.d(DEBUG_TAG, "USBPermissionManager.register: Starting registration, isReceiverRegistered=$isReceiverRegistered")
+        
         if (isReceiverRegistered) {
             Log.w(TAG, "USB receiver already registered")
+            Log.d(DEBUG_TAG, "USBPermissionManager.register: Already registered, returning")
             return
         }
         
@@ -151,6 +175,8 @@ class USBPermissionManager(
             addAction(UsbManager.ACTION_USB_DEVICE_ATTACHED)
             addAction(UsbManager.ACTION_USB_DEVICE_DETACHED)
         }
+        
+        Log.d(DEBUG_TAG, "USBPermissionManager.register: Registering receiver with filter actions: ${filter.actionsIterator().asSequence().toList()}")
         
         ContextCompat.registerReceiver(
             context, 
@@ -161,6 +187,7 @@ class USBPermissionManager(
         
         isReceiverRegistered = true
         Log.d(TAG, "USB receiver registered")
+        Log.d(DEBUG_TAG, "USBPermissionManager.register: Registration completed successfully")
     }
     
     /**
@@ -219,10 +246,17 @@ class USBPermissionManager(
      * Request permission for USB device
      */
     fun requestPermission(device: UsbDevice) {
-        if (hasPermission(device)) {
+        Log.d(DEBUG_TAG, "USBPermissionManager.requestPermission: Starting for device ${device.deviceName} (VID=${device.vendorId}, PID=${device.productId})")
+        
+        val alreadyHasPermission = hasPermission(device)
+        Log.d(DEBUG_TAG, "USBPermissionManager.requestPermission: hasPermission check result: $alreadyHasPermission")
+        
+        if (alreadyHasPermission) {
             val deviceType = getDeviceType(device)
             Log.d(TAG, "Permission already granted for: ${device.deviceName} (Type: $deviceType)")
+            Log.d(DEBUG_TAG, "USBPermissionManager.requestPermission: Permission already granted, calling listener.onPermissionGranted")
             listener.onPermissionGranted(device, deviceType)
+            Log.d(DEBUG_TAG, "USBPermissionManager.requestPermission: listener.onPermissionGranted completed for existing permission")
             return
         }
         
@@ -240,26 +274,42 @@ class USBPermissionManager(
         )
         
         Log.d(TAG, "🔑 Requesting USB permission for: ${device.productName ?: device.deviceName}")
+        Log.d(DEBUG_TAG, "USBPermissionManager.requestPermission: Calling _usbManager.requestPermission with intent action: ${ACTION_USB_PERMISSION}")
         _usbManager.requestPermission(device, permissionIntent)
+        Log.d(DEBUG_TAG, "USBPermissionManager.requestPermission: _usbManager.requestPermission call completed")
     }
     
     /**
      * Check and request permissions for all connected supported devices (cameras and radar)
      */
     fun checkAndRequestPermissions() {
-        val allSupportedDevices = getConnectedDevices().filter { shouldHandleDevice(it) }
+        Log.d(DEBUG_TAG, "USBPermissionManager.checkAndRequestPermissions: Starting permission check")
+        
+        val allConnectedDevices = getConnectedDevices()
+        Log.d(DEBUG_TAG, "USBPermissionManager.checkAndRequestPermissions: Found ${allConnectedDevices.size} total connected devices")
+        
+        val allSupportedDevices = allConnectedDevices.filter { shouldHandleDevice(it) }
         Log.d(TAG, "Checking permissions for ${allSupportedDevices.size} supported devices")
+        Log.d(DEBUG_TAG, "USBPermissionManager.checkAndRequestPermissions: Supported devices: ${allSupportedDevices.map { "${it.deviceName} (Type: ${getDeviceType(it)})" }}")
         
         for (device in allSupportedDevices) {
             val deviceType = getDeviceType(device)
-            if (!hasPermission(device)) {
+            val hasCurrentPermission = hasPermission(device)
+            Log.d(DEBUG_TAG, "USBPermissionManager.checkAndRequestPermissions: Device ${device.deviceName} - hasPermission: $hasCurrentPermission")
+            
+            if (!hasCurrentPermission) {
+                Log.d(DEBUG_TAG, "USBPermissionManager.checkAndRequestPermissions: Requesting permission for ${device.deviceName}")
                 requestPermission(device)
+                Log.d(DEBUG_TAG, "USBPermissionManager.checkAndRequestPermissions: Permission request initiated, returning (one at a time)")
                 return // Request one at a time
             } else {
                 Log.d(TAG, "✅ Permission already granted for: ${device.productName ?: device.deviceName} (Type: $deviceType)")
+                Log.d(DEBUG_TAG, "USBPermissionManager.checkAndRequestPermissions: Calling listener.onPermissionGranted for existing permission ${device.deviceName}")
                 listener.onPermissionGranted(device, deviceType)
             }
         }
+        
+        Log.d(DEBUG_TAG, "USBPermissionManager.checkAndRequestPermissions: Permission check completed for all devices")
     }
     
     /**

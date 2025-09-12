@@ -31,8 +31,12 @@ class USBCameraFragment : CameraFragment(), ICamera {
     
     companion object {
         private const val TAG = "USBCameraFragment"
+        private const val DEBUG_TAG = "DEBUG_USB_RESTART"
         
         fun newInstance(usbDevice: UsbDevice, config: CameraConfig, activity: AppCompatActivity): USBCameraFragment {
+            Log.d(DEBUG_TAG, "USBCameraFragment.newInstance: Creating new instance for device ${usbDevice.deviceName}")
+            Log.d(DEBUG_TAG, "USBCameraFragment.newInstance: Config - ${config.width}x${config.height}, detectFrames=${config.enableDetectionFrames}, showPreview=${config.showPreview}")
+            
             return USBCameraFragment().apply {
                 this.targetUsbDevice = usbDevice
                 this.cameraConfig = config
@@ -69,6 +73,7 @@ class USBCameraFragment : CameraFragment(), ICamera {
         // Camera is started automatically by AUSBC when fragment is added
         // This method exists for interface compatibility
         Log.d(TAG, "startCamera called - camera will start when fragment is ready")
+        Log.d(DEBUG_TAG, "USBCameraFragment.startCamera: Called with config ${config.width}x${config.height}, detectFrames=${config.enableDetectionFrames}")
     }
     
     override fun stopCamera() {
@@ -229,19 +234,28 @@ class USBCameraFragment : CameraFragment(), ICamera {
     
     override fun getDefaultCamera(): UsbDevice? {
         Log.d(TAG, "Returning target USB device: ${targetUsbDevice.deviceName}")
+        Log.d(DEBUG_TAG, "USBCameraFragment.getDefaultCamera: Returning device ${targetUsbDevice.deviceName} (VID=${targetUsbDevice.vendorId}, PID=${targetUsbDevice.productId})")
         return targetUsbDevice
     }
     
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
+        Log.d(DEBUG_TAG, "USBCameraFragment.onViewCreated: Starting view creation for device ${targetUsbDevice.deviceName}")
+        Log.d(DEBUG_TAG, "USBCameraFragment.onViewCreated: View: $view, savedInstanceState: $savedInstanceState")
+        
         super.onViewCreated(view, savedInstanceState)
+        
         val mode = if (cameraConfig.showPreview) "PREVIEW MODE" else "OFFSCREEN MODE"
         Log.d(TAG, "onViewCreated - Device: ${targetUsbDevice.deviceName} ($mode)")
+        Log.d(DEBUG_TAG, "USBCameraFragment.onViewCreated: Mode=$mode, targetDevice=${targetUsbDevice.deviceName} (VID=${targetUsbDevice.vendorId}, PID=${targetUsbDevice.productId})")
         
         // Enable AUSBC debugging
+        Log.d(DEBUG_TAG, "USBCameraFragment.onViewCreated: Enabling AUSBC debugging")
         try {
             com.jiangdg.ausbc.utils.Utils.debugCamera = true
+            Log.d(DEBUG_TAG, "USBCameraFragment.onViewCreated: AUSBC debugging enabled successfully")
         } catch (e: Exception) {
             Log.w(TAG, "Could not enable AUSBC debugging: ${e.message}")
+            Log.w(DEBUG_TAG, "USBCameraFragment.onViewCreated: Failed to enable AUSBC debugging: ${e.message}")
         }
         
         if (cameraConfig.showPreview) {
@@ -256,37 +270,54 @@ class USBCameraFragment : CameraFragment(), ICamera {
         code: ICameraStateCallBack.State,
         msg: String?
     ) {
+        Log.d(DEBUG_TAG, "USBCameraFragment.onCameraState: State change - code=$code, msg=$msg")
+        Log.d(DEBUG_TAG, "USBCameraFragment.onCameraState: Camera instance: $self")
+        
         when (code) {
             ICameraStateCallBack.State.OPENED -> {
                 Log.i(TAG, "✅ USB camera opened successfully in OFFSCREEN mode (no preview)")
                 Log.i(TAG, "📷 Setting up frame callback for detection...")
+                Log.d(DEBUG_TAG, "USBCameraFragment.onCameraState: OPENED - Device ${targetUsbDevice.deviceName} camera opened successfully")
+                Log.d(DEBUG_TAG, "USBCameraFragment.onCameraState: OPENED - Setting up preview callback for detection frames")
                 setupPreviewCallback()
+                Log.d(DEBUG_TAG, "USBCameraFragment.onCameraState: OPENED - Notifying camera state listener")
                 cameraStateListener?.onCameraOpened()
             }
             ICameraStateCallBack.State.CLOSED -> {
                 Log.i(TAG, "🔴 USB camera closed - Total frames received: $frameCount")
+                Log.d(DEBUG_TAG, "USBCameraFragment.onCameraState: CLOSED - Device ${targetUsbDevice.deviceName} camera closed, total frames: $frameCount")
                 frameCount = 0
                 cameraStateListener?.onCameraClosed()
             }
             ICameraStateCallBack.State.ERROR -> {
                 Log.e(TAG, "❌ USB camera error: $msg")
+                Log.e(DEBUG_TAG, "USBCameraFragment.onCameraState: ERROR - Device ${targetUsbDevice.deviceName} error: $msg")
                 cameraStateListener?.onCameraError(msg ?: "Unknown camera error")
             }
         }
     }
     
     private fun setupPreviewCallback() {
+        Log.d(DEBUG_TAG, "USBCameraFragment.setupPreviewCallback: Starting preview callback setup")
+        
         if (!cameraConfig.enableDetectionFrames) {
             Log.w(TAG, "⚠️ Detection frames disabled in config")
+            Log.d(DEBUG_TAG, "USBCameraFragment.setupPreviewCallback: Detection frames disabled in config, returning")
             return
         }
         
         Log.d(TAG, "🔧 Setting up frame callback for OFFSCREEN mode (no preview surface)")
+        Log.d(DEBUG_TAG, "USBCameraFragment.setupPreviewCallback: Detection frames enabled, creating preview callback")
         
         val previewCallback = object : IPreviewDataCallBack {
             override fun onPreviewData(data: ByteArray?, width: Int, height: Int, format: IPreviewDataCallBack.DataFormat) {
                 if (data != null && cameraConfig.enableDetectionFrames) {
                     frameCount++
+                    
+                    // First frame log
+                    if (frameCount == 1L) {
+                        Log.d(DEBUG_TAG, "USBCameraFragment.onPreviewData: FIRST FRAME received! Size: ${data.size} bytes, ${width}x${height}, Format: $format")
+                    }
                     
                     // Log every 30 frames to confirm flow
                     if (frameCount % 30 == 0L) {
@@ -296,18 +327,24 @@ class USBCameraFragment : CameraFragment(), ICamera {
                         
                         Log.d(TAG, "📊 USB Frame Flow [OFFSCREEN]: #$frameCount | ${width}x${height} | " +
                               "Format: $format | FPS: %.1f".format(fps))
+                        Log.d(DEBUG_TAG, "USBCameraFragment.onPreviewData: Frame #$frameCount - ${width}x${height}, Format: $format, FPS: %.1f".format(fps))
                         lastFrameLogTime = currentTime
                     }
                     
                     processDetectionFrame(data, width, height, format)
                 } else if (data == null) {
                     Log.w(TAG, "⚠️ Received null frame data")
+                    Log.w(DEBUG_TAG, "USBCameraFragment.onPreviewData: Received null frame data at frame #$frameCount")
+                } else {
+                    Log.d(DEBUG_TAG, "USBCameraFragment.onPreviewData: Frame received but detection frames disabled")
                 }
             }
         }
         
+        Log.d(DEBUG_TAG, "USBCameraFragment.setupPreviewCallback: Registering preview callback with AUSBC")
         addPreviewDataCallBack(previewCallback)
         Log.i(TAG, "✅ Frame callback registered successfully for OFFSCREEN mode")
+        Log.d(DEBUG_TAG, "USBCameraFragment.setupPreviewCallback: Preview callback registration completed")
     }
     
     private fun processDetectionFrame(data: ByteArray, width: Int, height: Int, format: IPreviewDataCallBack.DataFormat) {
